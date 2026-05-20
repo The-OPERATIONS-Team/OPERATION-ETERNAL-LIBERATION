@@ -32,9 +32,9 @@ PLATFORM = platform.system()
 # ---------------------------------------------------------------------------
 APP_DIR     = Path(__file__).parent.resolve()   # _app/
 ROOT_DIR    = APP_DIR.parent                    # folder user sees (where TSS/ lives)
-RPCS3_DIR   = os.getenv("OEL_RPCS3_DIR") or APP_DIR / "RPCS3"
-RPCN_DIR    = os.getenv("OEL_RPCN_DIR") or APP_DIR / "rpcn"
-RPCN_DATA_DIR = os.getenv("OEL_RPCN_DATA_DIR") or RPCN_DIR
+RPCS3_DIR   = Path(os.getenv("OEL_RPCS3_DIR") or (APP_DIR / "RPCS3"))
+RPCN_DIR    = Path(os.getenv("OEL_RPCN_DIR") or (APP_DIR / "rpcn"))
+RPCN_DATA_DIR = Path(os.getenv("OEL_RPCN_DATA_DIR") or RPCN_DIR)
 GAMESERVER_DIR = APP_DIR / "gameserver"
 PATCHES_DIR = APP_DIR / "patches"
 
@@ -54,11 +54,15 @@ else:
 
 GAMESERVER_SCRIPT = GAMESERVER_DIR / "opeternal_listener.py"
 
-if not os.getenv("OEL_RPCS3_SYSTEM"):
-    RPCS3_DATA_DIR = os.getenv("OEL_RPCS3_DATA_DIR") or RPCS3_DIR / "portable"
+if "OEL_RPCS3_SYSTEM" not in os.environ:
+    RPCS3_DATA_DIR = Path(os.getenv("OEL_RPCS3_DATA_DIR") or (RPCS3_DIR / "portable"))
 
-RPCN_YML    = RPCS3_DATA_DIR / "config" / "rpcn.yml"
-CUSTOM_CFG  = RPCS3_DATA_DIR / "config" / "custom_configs" / "config_NPUB31347.yml"
+RPCS3_CONFIG_DIR = RPCS3_DATA_DIR
+if PLATFORM == 'Windows':
+    RPCS3_CONFIG_DIR = RPCS3_CONFIG_DIR / "config"
+
+RPCN_YML    = RPCS3_CONFIG_DIR / "rpcn.yml"
+CUSTOM_CFG  = RPCS3_CONFIG_DIR / "custom_configs" / "config_NPUB31347.yml"
 TSS_SRC_DIR = ROOT_DIR / "TSS"
 RPCS3_TSS   = RPCS3_DATA_DIR / "tss"
 RPCN_TSS    = RPCN_DATA_DIR / "tss_data" / "NPWR04428_00"
@@ -153,12 +157,14 @@ class LaunchWorker(QThread):
             self.log.emit(f"TSS: {n}/15 files copied.")
 
             self.log.emit("Deploying patches...")
-            cfg_mod.deploy_patches(str(RPCS3_DIR), str(PATCHES_DIR))
-            cfg_mod.install_gui_assets(str(RPCS3_DIR), str(PATCHES_DIR))
+            cfg_mod.deploy_patches(str(RPCS3_DATA_DIR), str(RPCS3_CONFIG_DIR), str(PATCHES_DIR))
+            cfg_mod.install_gui_assets(str(RPCS3_DATA_DIR), str(PATCHES_DIR))
 
             self.log.emit("Configuring RPCS3...")
             ok = cfg_mod.ensure_custom_config(
-                str(RPCS3_DIR), str(RPCS3_EXE),
+                str(RPCS3_DATA_DIR), 
+                str(RPCS3_CONFIG_DIR),
+                str(RPCS3_EXE),
                 progress_cb=lambda m: self.log.emit(m),
             )
             if not ok:
@@ -1088,7 +1094,7 @@ class ACILauncher(QMainWindow):
             if not self._restore_staged:
                 tus_saves.cleanup_restore_sentinels(str(RPCS3_DATA_DIR / "tus"))
             self._restore_staged = False
-            self._rpcs3_proc.launch(str(RPCS3_EXE), [], cwd=str(RPCS3_DIR))
+            self._rpcs3_proc.launch(str(RPCS3_EXE), [], cwd=str(RPCS3_DATA_DIR))
 
         self._play_tab.set_launch_enabled(True)
         self._tss_tab.refresh()

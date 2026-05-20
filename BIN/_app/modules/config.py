@@ -6,31 +6,34 @@ import subprocess
 import time
 
 
-def deploy_patches(rpcs3_dir: str, patches_dir: str):
-    patches_dest = os.path.join(rpcs3_dir, "portable", "patches")
-    config_dest  = os.path.join(rpcs3_dir, "portable", "config")
+def deploy_patches(
+    rpcs3_data_dir: str,
+    rpcs3_config_dir: str,
+    patches_dir: str
+):
+    patches_dest = os.path.join(rpcs3_data_dir, "patches")
     os.makedirs(patches_dest, exist_ok=True)
-    os.makedirs(config_dest,  exist_ok=True)
+    os.makedirs(rpcs3_config_dir, exist_ok=True)
     shutil.copy2(
         os.path.join(patches_dir, "imported_patch.yml"),
         os.path.join(patches_dest, "imported_patch.yml"),
     )
     shutil.copy2(
         os.path.join(patches_dir, "patch_config.yml"),
-        os.path.join(config_dest, "patch_config.yml"),
+        os.path.join(rpcs3_config_dir, "patch_config.yml"),
     )
 
 
 _GUI_PRESERVE = {"CurrentSettings.ini", "persistent_settings.dat"}
 
 
-def install_gui_assets(rpcs3_dir: str, patches_dir: str):
+def install_gui_assets(rpcs3_data_dir: str, patches_dir: str):
     """Deploy GuiConfigs themes and Icons/ui assets; never overwrite user settings files."""
     mappings = [
         (os.path.join(patches_dir, "GuiConfigs"),
-         os.path.join(rpcs3_dir, "portable", "GuiConfigs")),
+         os.path.join(rpcs3_data_dir, "GuiConfigs")),
         (os.path.join(patches_dir, "Icons", "ui"),
-         os.path.join(rpcs3_dir, "portable", "Icons", "ui")),
+         os.path.join(rpcs3_data_dir, "Icons", "ui")),
     ]
     for src, dst in mappings:
         if not os.path.exists(src):
@@ -47,6 +50,7 @@ def install_gui_assets(rpcs3_dir: str, patches_dir: str):
 
 def ensure_custom_config(
     rpcs3_dir: str,
+    rpcs3_config_dir: str,
     rpcs3_exe: str,
     timeout: int = 30,
     progress_cb=None,
@@ -56,9 +60,9 @@ def ensure_custom_config(
     Launches RPCS3 briefly to generate config.yml on first run.
     Returns True on success, False if config.yml never appeared.
     """
-    cfg_dir    = os.path.join(rpcs3_dir, "portable", "config", "custom_configs")
+    cfg_dir    = os.path.join(rpcs3_config_dir, "custom_configs")
     cfg_path   = os.path.join(cfg_dir, "config_NPUB31347.yml")
-    global_cfg = os.path.join(rpcs3_dir, "portable", "config", "config.yml")
+    global_cfg = os.path.join(rpcs3_config_dir, "config.yml")
     os.makedirs(cfg_dir, exist_ok=True)
 
     if os.path.exists(cfg_path):
@@ -82,7 +86,7 @@ def ensure_custom_config(
             return False
         if progress_cb:
             progress_cb("Config generated.")
-
+    os.path.join(global_cfg, cfg_path)
     shutil.copy2(global_cfg, cfg_path)
     return True
 
