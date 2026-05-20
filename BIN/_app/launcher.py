@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """OP ETERNAL Launcher - OPERATION ETERNAL LIBERATION."""
 import glob
 import json
@@ -5,6 +6,8 @@ import os
 import shutil
 import sys
 import time
+import pathlib
+import platform
 from pathlib import Path
 
 from PySide6.QtCore import (
@@ -22,33 +25,51 @@ from PySide6.QtWidgets import (
     QSpinBox, QFrame, QSizePolicy, QButtonGroup, QScrollArea,
 )
 
+PLATFORM = platform.system()
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 APP_DIR     = Path(__file__).parent.resolve()   # _app/
 ROOT_DIR    = APP_DIR.parent                    # folder user sees (where TSS/ lives)
-RPCS3_DIR   = APP_DIR / "RPCS3"
-RPCN_DIR    = APP_DIR / "rpcn"
+RPCS3_DIR   = os.getenv("OEL_RPCS3_DIR") or APP_DIR / "RPCS3"
+RPCN_DIR    = os.getenv("OEL_RPCN_DIR") or APP_DIR / "rpcn"
+RPCN_DATA_DIR = os.getenv("OEL_RPCN_DATA_DIR") or RPCN_DIR
 GAMESERVER_DIR = APP_DIR / "gameserver"
 PATCHES_DIR = APP_DIR / "patches"
-PYTHON_EXE  = APP_DIR / "python" / "python.exe"
-RPCS3_EXE   = RPCS3_DIR / "rpcs3.exe"
-RPCN_EXE    = RPCN_DIR / "rpcn.exe"
+
+PYTHON_EXE  = sys.executable
+if PLATFORM == 'Windows':
+    RPCS3_EXE = RPCS3_DIR / "rpcs3.exe"
+    RPCN_EXE  = RPCN_DIR / "rpcn.exe"
+    RPCS3_DATA_DIR = Path(os.getenv('APPDATA')) / 'RPCS3'
+elif PLATFORM == 'Darwin':
+    RPCS3_EXE = RPCS3_DIR
+    RPCN_EXE  = RPCN_DIR / "rpcn"
+    RPCS3_DATA_DIR = Path(os.getenv('HOME')) / 'Library' / 'Application Support' / 'rpcs3'
+else:
+    RPCS3_EXE = RPCS3_DIR / "rpcs3"
+    RPCN_EXE  = RPCN_DIR / "rpcn"
+    RPCS3_DATA_DIR = Path(os.getenv('HOME')) / '.config' / 'rpcs3'
+
 GAMESERVER_SCRIPT = GAMESERVER_DIR / "opeternal_listener.py"
-PORTABLE_DIR = RPCS3_DIR / "portable"
-RPCN_YML    = PORTABLE_DIR / "config" / "rpcn.yml"
-CUSTOM_CFG  = PORTABLE_DIR / "config" / "custom_configs" / "config_NPUB31347.yml"
+
+if not os.getenv("OEL_RPCS3_SYSTEM"):
+    RPCS3_DATA_DIR = os.getenv("OEL_RPCS3_DATA_DIR") or RPCS3_DIR / "portable"
+
+RPCN_YML    = RPCS3_DATA_DIR / "config" / "rpcn.yml"
+CUSTOM_CFG  = RPCS3_DATA_DIR / "config" / "custom_configs" / "config_NPUB31347.yml"
 TSS_SRC_DIR = ROOT_DIR / "TSS"
-RPCS3_TSS   = PORTABLE_DIR / "tss"
-RPCN_TSS    = RPCN_DIR / "tss_data" / "NPWR04428_00"
+RPCS3_TSS   = RPCS3_DATA_DIR / "tss"
+RPCN_TSS    = RPCN_DATA_DIR / "tss_data" / "NPWR04428_00"
 SETTINGS_FILE = APP_DIR / "settings.json"
 
 VERSION = "1.0.2"
 
 COMMUNITY_RPCN_HOST = "np.rpcs3.net"
 
-FIRMWARE_INDICATOR = PORTABLE_DIR / "dev_flash" / "sys" / "external" / "libsre.sprx"
-GAME_INDICATOR     = PORTABLE_DIR / "dev_hdd0"  / "game"             / "NPUB31347" / "PARAM.SFO"
+FIRMWARE_INDICATOR = RPCS3_DATA_DIR / "dev_flash" / "sys" / "external" / "libsre.sprx"
+GAME_INDICATOR     = RPCS3_DATA_DIR / "dev_hdd0"  / "game"             / "NPUB31347" / "PARAM.SFO"
 
 # Modules live next to this file
 sys.path.insert(0, str(APP_DIR))
@@ -525,7 +546,7 @@ class SaveEditorTab(QWidget):
         self._write_btn.clicked.connect(self._write_saves)
 
     def _auto_detect_saves(self):
-        pattern = str(PORTABLE_DIR / "tus" / "NPWR04428_00" / "*")
+        pattern = str(RPCS3_DATA_DIR / "tus" / "NPWR04428_00" / "*")
         matches = glob.glob(pattern)
         if matches:
             self._save_dir = matches[0]
@@ -659,7 +680,7 @@ class BackupRestoreTab(QWidget):
         self._refresh()
 
     def _tus_root(self) -> str:
-        return str(PORTABLE_DIR / "tus")
+        return str(RPCS3_DATA_DIR / "tus")
 
     def _refresh(self):
         tus_root = self._tus_root()
@@ -1060,12 +1081,12 @@ class ACILauncher(QMainWindow):
 
         if rpcn_mode == "self_hosted" and not self._rpcn_proc.is_running():
             QTimer.singleShot(2000, lambda: self._rpcn_proc.launch(
-                str(RPCN_EXE), [], cwd=str(RPCN_DIR), new_console=True,
+                str(RPCN_EXE), [], cwd=str(RPCN_DATA_DIR), new_console=True,
             ))
 
         if not self._rpcs3_proc.is_running():
             if not self._restore_staged:
-                tus_saves.cleanup_restore_sentinels(str(PORTABLE_DIR / "tus"))
+                tus_saves.cleanup_restore_sentinels(str(RPCS3_DATA_DIR / "tus"))
             self._restore_staged = False
             self._rpcs3_proc.launch(str(RPCS3_EXE), [], cwd=str(RPCS3_DIR))
 
@@ -1074,7 +1095,7 @@ class ACILauncher(QMainWindow):
 
     def _on_rpcs3_stopped(self, _exit_code: int):
         self._play_tab.refresh_setup_status()
-        tus_saves.cleanup_restore_sentinels(str(PORTABLE_DIR / "tus"))
+        tus_saves.cleanup_restore_sentinels(str(RPCS3_DATA_DIR / "tus"))
         self._restore_staged = False
 
     def _on_settings_saved(self, settings: dict):
