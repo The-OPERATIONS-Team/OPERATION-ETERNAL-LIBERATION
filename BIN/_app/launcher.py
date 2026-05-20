@@ -1081,13 +1081,14 @@ class ACILauncher(QMainWindow):
                 gs_args,
                 cwd=str(GAMESERVER_DIR),
                 new_console=True,
+                elevate=True,
             )
             if not ok:
                 QMessageBox.warning(self, "Gameserver", "Could not start the game server.")
 
         if rpcn_mode == "self_hosted" and not self._rpcn_proc.is_running():
             QTimer.singleShot(2000, lambda: self._rpcn_proc.launch(
-                str(RPCN_EXE), [], cwd=str(RPCN_DATA_DIR), new_console=True,
+                str(RPCN_EXE), [], cwd=str(RPCN_DATA_DIR), new_console=True, elevate=True,
             ))
 
         if not self._rpcs3_proc.is_running():

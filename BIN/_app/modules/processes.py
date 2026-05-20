@@ -8,9 +8,11 @@ Supports two launch modes:
 import socket
 import subprocess
 import sys
+import platform
 
 from PySide6.QtCore import QObject, QProcess, QTimer, Signal
 
+PLATFORM = platform.system()
 
 def is_port_open(host: str = "127.0.0.1", port: int = 80, timeout: float = 0.4) -> bool:
     """Return True if a TCP connection to host:port succeeds within timeout seconds."""
@@ -40,12 +42,19 @@ class ManagedProcess(QObject):
         args: list[str],
         cwd: str | None = None,
         new_console: bool = False,
+        elevate: bool = False,
     ) -> bool:
         """Start the process.  Returns False if already running or failed to start."""
         if self.is_running():
             return False
 
-        if new_console and sys.platform == "win32":
+        if elevate and PLATFORM == 'Linux':
+            # darwin is cursed, windows can use powershell but is similarly cursed.
+            # you (should not) run Qt6 as root and is impossible under wayland.
+            args = [program] + args
+            program = "pkexec"
+
+        if new_console and PLATFORM == 'Windows':
             try:
                 self._popen = subprocess.Popen(
                     [program] + args,
