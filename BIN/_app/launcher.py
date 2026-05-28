@@ -1,5 +1,6 @@
 """OP ETERNAL Launcher - OPERATION ETERNAL LIBERATION."""
 import glob
+import hashlib
 import json
 import os
 import shutil
@@ -10,6 +11,7 @@ from pathlib import Path
 from PySide6.QtCore import (
     Qt, QObject, QThread, Signal, QTimer, QUrl,
 )
+from PySide6.QtGui import QFont
 from PySide6.QtNetwork import (
     QNetworkAccessManager, QNetworkRequest, QNetworkReply,
 )
@@ -53,6 +55,7 @@ COMMUNITY_RPCN_HOST = "np.rpcs3.net"
 
 FIRMWARE_INDICATOR = PORTABLE_DIR / "dev_flash" / "sys" / "external" / "libsre.sprx"
 GAME_INDICATOR     = PORTABLE_DIR / "dev_hdd0"  / "game"             / "NPUB31347" / "PARAM.SFO"
+GAME_USRDIR        = PORTABLE_DIR / "dev_hdd0"  / "game"             / "NPUB31347" / "USRDIR"
 
 # Modules live next to this file
 sys.path.insert(0, str(APP_DIR))
@@ -210,6 +213,41 @@ class TssDownloader(QObject):
         self._fetch_next()
 
 # ---------------------------------------------------------------------------
+# Game files checksum worker
+# ---------------------------------------------------------------------------
+class ChecksumWorker(QThread):
+    """SHA-256 of every file under a tree, walked in sorted relative-path order."""
+
+    done = Signal(str)
+
+    def __init__(self, root: Path, parent=None):
+        super().__init__(parent)
+        self._root = root
+
+    def run(self):
+        try:
+            h = hashlib.sha256()
+            files = sorted(
+                (p for p in self._root.rglob("*") if p.is_file()),
+                key=lambda p: p.relative_to(self._root).as_posix(),
+            )
+            for p in files:
+                rel = p.relative_to(self._root).as_posix().encode("utf-8")
+                # Length-prefix the path so e.g. "a/bc" and "ab/c" cannot collide.
+                h.update(len(rel).to_bytes(4, "big"))
+                h.update(rel)
+                with p.open("rb") as fh:
+                    while True:
+                        chunk = fh.read(1 << 20)
+                        if not chunk:
+                            break
+                        h.update(chunk)
+            self.done.emit(h.hexdigest())
+        except OSError as e:
+            self.done.emit(f"error: {e}")
+
+
+# ---------------------------------------------------------------------------
 # Play Tab
 # ---------------------------------------------------------------------------
 class PlayTab(QWidget):
@@ -219,6 +257,8 @@ class PlayTab(QWidget):
         super().__init__(parent)
         self._settings = settings
         self._rpcn_running = False
+        self._checksum_worker: ChecksumWorker | None = None
+        self._checksum_done = False
         self._build_ui()
         self._status_timer = QTimer(self)
         self._status_timer.setInterval(2000)
@@ -313,7 +353,7 @@ class PlayTab(QWidget):
         setup_grp = QGroupBox("Setup")
         sg = QGridLayout(setup_grp)
         sg.setSpacing(4)
-        sg.setColumnStretch(1, 1)
+        sg.setColumnStretch(2, 1)
 
         sg.addWidget(QLabel("PS3 firmware"), 0, 0)
         self._fw_status = QLabel()
@@ -328,6 +368,16 @@ class PlayTab(QWidget):
         self._game_hint = QLabel("Launch RPCS3, then: File > Install Packages/Raps")
         self._game_hint.setStyleSheet("color: gray; font-style: italic;")
         sg.addWidget(self._game_hint, 1, 2)
+        self._checksum_field = QLineEdit()
+        self._checksum_field.setReadOnly(True)
+        self._checksum_field.setPlaceholderText("calculating...")
+        mono = QFont()
+        mono.setStyleHint(QFont.StyleHint.Monospace)
+        mono.setFamily("monospace")
+        self._checksum_field.setFont(mono)
+        self._checksum_field.setCursorPosition(0)
+        sg.addWidget(self._checksum_field, 1, 2)
+        self._checksum_field.setVisible(False)
 
         sg.addWidget(QLabel("TSS files"), 2, 0)
         self._tss_label = QLabel()
@@ -335,8 +385,8 @@ class PlayTab(QWidget):
         tss_btn_layout = QHBoxLayout()
         self._tss_browse = QPushButton("Browse...")
         self._tss_browse.setFixedWidth(80)
-        tss_btn_layout.addWidget(self._tss_browse)
         tss_btn_layout.addStretch()
+        tss_btn_layout.addWidget(self._tss_browse)
         sg.addLayout(tss_btn_layout, 2, 2)
 
         self._tss_hint = QLabel(
@@ -410,6 +460,33 @@ class PlayTab(QWidget):
         self._tss_label.setText(f"{n} / {total} files")
         self._tss_label.setStyleSheet("color: green;" if tss_ok else "color: gray;")
         self._tss_hint.setVisible(not tss_ok)
+
+        self._refresh_checksum_row()
+
+    def _refresh_checksum_row(self):
+        try:
+            usrdir_present = GAME_USRDIR.is_dir() and any(GAME_USRDIR.iterdir())
+        except OSError:
+            usrdir_present = False
+
+        if not (GAME_INDICATOR.exists() and usrdir_present):
+            self._checksum_field.setVisible(False)
+            return
+
+        self._checksum_field.setVisible(True)
+        if not self._checksum_done and self._checksum_worker is None:
+            self._checksum_worker = ChecksumWorker(GAME_USRDIR, self)
+            self._checksum_worker.done.connect(self._on_checksum_done)
+            self._checksum_worker.start()
+
+    def _on_checksum_done(self, digest: str):
+        self._checksum_field.setText(digest)
+        self._checksum_field.setToolTip(digest)
+        self._checksum_field.setCursorPosition(0)
+        self._checksum_done = True
+        if self._checksum_worker is not None:
+            self._checksum_worker.deleteLater()
+            self._checksum_worker = None
 
     def _browse_tss(self):
         folder = QFileDialog.getExistingDirectory(self, "Select folder containing TSS files")
