@@ -73,6 +73,7 @@ Sync-Submodule "SRC\GIT\rpcn"  $RpcnUrl  $RpcnCommit
 Step "Apply patches"
 Apply-Patch "SRC\GIT\rpcs3" "$RepoRoot\SRC\PATCH\RPCS3\tss-support.patch"
 Apply-Patch "SRC\GIT\rpcs3" "$RepoRoot\SRC\PATCH\RPCS3\p2ps-disconnect-fix.patch"
+Apply-Patch "SRC\GIT\rpcs3" "$RepoRoot\SRC\PATCH\RPCS3\rpcn-reconnect.patch"
 Apply-Patch "SRC\GIT\rpcn"  "$RepoRoot\SRC\PATCH\RPCN\tss-server.patch"
 
 # 3. Prebuilt LLVM libs

@@ -31,6 +31,16 @@ if errorlevel 1 (
 echo Done.
 echo.
 
+echo [2b/3] Applying RPCN auto-reconnect patch...
+cd /d "%SRC%GIT\rpcs3"
+git apply "..\..\PATCH\RPCS3\rpcn-reconnect.patch"
+if errorlevel 1 (
+    echo.
+    echo ERROR: RPCN reconnect patch failed.
+    pause & exit /b 1
+)
+echo Done.
+echo.
 echo [3/3] Applying RPCN TSS server patch...
 cd /d "%SRC%GIT\rpcn"
 git apply "..\..\PATCH\RPCN\tss-server.patch"

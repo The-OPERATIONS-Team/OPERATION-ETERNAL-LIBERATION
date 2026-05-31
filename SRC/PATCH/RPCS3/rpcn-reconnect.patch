@@ -1,0 +1,65 @@
+diff --git a/rpcs3/Emu/NP/np_handler.cpp b/rpcs3/Emu/NP/np_handler.cpp
+--- a/rpcs3/Emu/NP/np_handler.cpp
++++ b/rpcs3/Emu/NP/np_handler.cpp
+@@ -1108,6 +1108,61 @@ void np_handler::operator()()
+ 		while (thread_ctrl::state() != thread_state::aborting && !Emu.IsStopped())
+ 		{
+ 			bool sleep = true;
++
++			// Auto-reconnect if RPCN connection was lost after a successful login.
++			// On a dropped connection rpcn_client sets connected=false but keeps
++			// authentified=true and is NOT destroyed, so check that combination.
++			if (is_psn_active && rpcn && rpcn->is_authentified() && !rpcn->is_connected())
++			{
++				rpcn_log.notice("RPCN connection lost, attempting to reconnect...");
++				thread_ctrl::wait_for(3'000'000);
++
++				if (thread_ctrl::state() == thread_state::aborting || Emu.IsStopped())
++					break;
++
++				// Drop the old instance (joins its threads in the destructor) and
++				// create a fresh one. reset() must bring the use count to zero so
++				// get_instance() builds a new client instead of returning the dead one.
++				{
++					std::lock_guard lock(mutex_rpcn);
++					rpcn.reset();
++					rpcn = rpcn::rpcn_client::get_instance(bind_ip);
++				}
++
++				// Local copy so the client can't be destroyed under us mid-call.
++				auto local_rpcn = rpcn;
++
++				if (auto state = local_rpcn->wait_for_connection(); state != rpcn::rpcn_state::failure_no_failure)
++				{
++					rpcn_log.error("RPCN reconnect: connection failed");
++					std::lock_guard lock(mutex_rpcn);
++					rpcn.reset();
++					continue;
++				}
++
++				if (auto state = local_rpcn->wait_for_authentified(); state != rpcn::rpcn_state::failure_no_failure)
++				{
++					rpcn_log.error("RPCN reconnect: authentication failed");
++					std::lock_guard lock(mutex_rpcn);
++					rpcn.reset();
++					continue;
++				}
++
++				public_ip_addr = local_rpcn->get_addr_sig();
++				if (!public_ip_addr)
++				{
++					rpcn_log.error("RPCN reconnect: signaling failed");
++					std::lock_guard lock(mutex_rpcn);
++					rpcn.reset();
++					continue;
++				}
++
++				local_ip_addr = std::bit_cast<u32, be_t<u32>>(local_rpcn->get_addr_local());
++				rpcn_log.success("RPCN reconnect: successfully reconnected!");
++				rsx::overlays::queue_message(localized_string_id::RPCN_SUCCESS_LOGGED_ON);
++				continue;
++			}
++
+ 			if (rpcn)
+ 			{
+ 				std::lock_guard lock(mutex_rpcn);
