@@ -3,6 +3,7 @@ import glob
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import sys
 import time
@@ -1198,6 +1199,14 @@ class SettingsTab(QWidget):
         btn_row.addStretch()
         root.addLayout(btn_row)
 
+        self._rpcs3_args = QLineEdit(
+            self._settings.get("rpcs3_args", "")
+        )
+        self._rpcs3_args.setPlaceholderText(
+            "--fullscreen"
+        )
+        form.addRow("RPCS3 launch arguments:", self._rpcs3_args)
+
         save_btn.clicked.connect(self._save)
         reset_btn.clicked.connect(self._reset)
 
@@ -1432,7 +1441,15 @@ class ACILauncher(QMainWindow):
             if not self._restore_staged:
                 tus_saves.cleanup_restore_sentinels(str(PORTABLE_DIR / "tus"))
             self._restore_staged = False
-            self._rpcs3_proc.launch(str(RPCS3_EXE), [], cwd=str(RPCS3_DIR))
+            rpcs3_args = shlex.split(
+            self._settings.get("rpcs3_args", "")
+            )
+            
+            self._rpcs3_proc.launch(
+                str(RPCS3_EXE),
+                rpcs3_args,
+                cwd=str(RPCS3_DIR)
+            )
 
         self._play_tab.set_launch_enabled(True)
         self._tss_tab.refresh()
