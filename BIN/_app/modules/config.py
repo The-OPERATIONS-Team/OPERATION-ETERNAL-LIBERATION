@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 import time
+import sys
 
 
 def deploy_patches(rpcs3_dir: str, patches_dir: str):
@@ -44,6 +45,7 @@ def install_gui_assets(rpcs3_dir: str, patches_dir: str):
                     continue
                 shutil.copy2(os.path.join(dirpath, name), os.path.join(dst_dir, name))
 
+_IS_WIN = sys.platform == "win32"
 
 def ensure_custom_config(
     rpcs3_dir: str,
@@ -56,10 +58,11 @@ def ensure_custom_config(
     Launches RPCS3 briefly to generate config.yml on first run.
     Returns True on success, False if config.yml never appeared.
     """
-    cfg_dir    = os.path.join(rpcs3_dir, "portable", "config", "custom_configs")
-    cfg_path   = os.path.join(cfg_dir, "config_NPUB31347.yml")
-    global_cfg = os.path.join(rpcs3_dir, "portable", "config", "config.yml")
-    os.makedirs(cfg_dir, exist_ok=True)
+    cfg_dir = os.path.join(rpcs3_dir, "portable", "config" if _IS_WIN else "")
+    custom_cfg_dir = os.path.join(cfg_dir, "custom_configs")
+    cfg_path = os.path.join(custom_cfg_dir, "config_NPUB31347.yml")
+    global_cfg = os.path.join(cfg_dir, "config.yml")
+    os.makedirs(custom_cfg_dir, exist_ok=True)
 
     if os.path.exists(cfg_path):
         return True
