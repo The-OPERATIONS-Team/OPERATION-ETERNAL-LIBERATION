@@ -8,7 +8,7 @@ from modules import ip_detect
 _DEFAULTS = {
     "rpcn_mode": "official",       # official | self_hosted | custom
     "rpcn_custom_host": "",
-    "gameserver_mode": "self_hosted",  # self_hosted | remote | operations
+    "gameserver_mode": "operations",   # self_hosted | remote | operations
     "gameserver_remote_ip": "",
     "rpcs3_bind_address": "",       # "" = RPCS3 default (0.0.0.0, all interfaces)
     "rpcs3_upnp": True,             # enable RPCS3 UPnP port forwarding (opt-out)

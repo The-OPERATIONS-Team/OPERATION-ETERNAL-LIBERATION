@@ -1,7 +1,6 @@
 """Play tab: connection setup, diagnostics, verification, and launch.
 
-Rendering and widget wiring only. Setup-status polling, edition detection,
-verification orchestration, and launch gating live in PlayViewModel.
+The polling, verification, and launch-gating logic lives in PlayViewModel.
 """
 import glob
 import os
@@ -72,11 +71,26 @@ class PlayTab(QWidget):
         # Game Server group
         gs_grp = QGroupBox("Game Server")
         gs_layout = QVBoxLayout(gs_grp)
+        self._gs_operations = QRadioButton("-OPERATIONS- Team server")
         self._gs_selfhosted = QRadioButton("Self-Hosted")
         self._gs_remote     = QRadioButton("Remote")
         self._gs_group      = QButtonGroup(self)
+        self._gs_group.addButton(self._gs_operations)
         self._gs_group.addButton(self._gs_selfhosted)
         self._gs_group.addButton(self._gs_remote)
+
+        gs_layout.addWidget(self._gs_operations)
+        self._gs_ops_panel = QWidget()
+        ops_panel_layout = QVBoxLayout(self._gs_ops_panel)
+        ops_panel_layout.setContentsMargins(20, 0, 0, 0)
+        ops_info = QLabel("Connects to the -OPERATIONS- community server.")
+        ops_info.setStyleSheet("color: gray; font-style: italic;")
+        ops_panel_layout.addWidget(ops_info)
+        self._telemetry_check = QCheckBox("Share RPCS3 logs to help improve the emulator (anonymized)")
+        self._telemetry_check.setChecked(bool(self._settings.get("enable_telemetry", False)))
+        self._telemetry_check.toggled.connect(self._on_telemetry_changed)
+        ops_panel_layout.addWidget(self._telemetry_check)
+        gs_layout.addWidget(self._gs_ops_panel)
 
         gs_layout.addWidget(self._gs_selfhosted)
         self._gs_iface_row_widget = QWidget()
@@ -100,21 +114,6 @@ class PlayTab(QWidget):
         gs_remote_row.addWidget(QLabel("Address:"))
         gs_remote_row.addWidget(self._gs_remote_ip)
         gs_layout.addWidget(self._gs_remote_row_widget)
-
-        self._gs_operations = QRadioButton("-OPERATIONS- Team server")
-        self._gs_group.addButton(self._gs_operations)
-        gs_layout.addWidget(self._gs_operations)
-        self._gs_ops_panel = QWidget()
-        ops_panel_layout = QVBoxLayout(self._gs_ops_panel)
-        ops_panel_layout.setContentsMargins(20, 0, 0, 0)
-        ops_info = QLabel("Connects to the -OPERATIONS- community server.")
-        ops_info.setStyleSheet("color: gray; font-style: italic;")
-        ops_panel_layout.addWidget(ops_info)
-        self._telemetry_check = QCheckBox("Share RPCS3 logs to help improve the emulator (anonymized)")
-        self._telemetry_check.setChecked(bool(self._settings.get("enable_telemetry", False)))
-        self._telemetry_check.toggled.connect(self._on_telemetry_changed)
-        ops_panel_layout.addWidget(self._telemetry_check)
-        gs_layout.addWidget(self._gs_ops_panel)
 
         root.addWidget(gs_grp)
 
@@ -147,7 +146,7 @@ class PlayTab(QWidget):
             self._rpcn_official.setChecked(True)
         self._rpcn_custom_host.setText(self._settings.get("rpcn_custom_host", ""))
 
-        gs_mode = self._settings.get("gameserver_mode", "self_hosted")
+        gs_mode = self._settings.get("gameserver_mode", "operations")
         if gs_mode == "remote":
             self._gs_remote.setChecked(True)
         elif gs_mode == "operations":
@@ -160,8 +159,11 @@ class PlayTab(QWidget):
         for b in (self._rpcn_official, self._rpcn_selfhosted, self._rpcn_custom,
                   self._gs_selfhosted, self._gs_remote, self._gs_operations):
             b.toggled.connect(self._update_custom_visibility)
+            b.toggled.connect(self._on_mode_toggled)
         for b in (self._rpcn_official, self._rpcn_selfhosted, self._rpcn_custom):
             b.toggled.connect(self._update_rpcn_indicator)
+        self._rpcn_custom_host.editingFinished.connect(self._persist_connection_settings)
+        self._gs_remote_ip.editingFinished.connect(self._persist_connection_settings)
 
         # Setup / diagnostics checklist
         setup_grp = QGroupBox("Setup")
@@ -315,7 +317,6 @@ class PlayTab(QWidget):
         self._tss_hint.setVisible(not tss_ok)
 
     def _on_verify_started(self):
-        # Re-verify: drop the stale result icons while the new check runs.
         self._verify_ok.setVisible(False)
         self._verify_warning.setVisible(False)
         self._verify_progress.setText("Checking...")
@@ -464,6 +465,18 @@ class PlayTab(QWidget):
         bidx = self._rpcs3_bind_combo.findData(prev_bind) if prev_bind else 0
         self._rpcs3_bind_combo.setCurrentIndex(bidx if bidx >= 0 else 0)
         self._rpcs3_bind_combo.blockSignals(False)
+
+    def _on_mode_toggled(self, checked: bool):
+        # A mode switch toggles two buttons; persist on the one being checked.
+        if checked:
+            self._persist_connection_settings()
+
+    def _persist_connection_settings(self):
+        self._settings["rpcn_mode"]            = self.get_rpcn_mode()
+        self._settings["rpcn_custom_host"]     = self.get_rpcn_custom_host()
+        self._settings["gameserver_mode"]      = self.get_gameserver_mode()
+        self._settings["gameserver_remote_ip"] = self.get_gameserver_remote_ip()
+        save_settings(self._settings)
 
     def _on_iface_changed(self):
         self._settings["network_interface"] = self._iface_combo.currentData() or ""
