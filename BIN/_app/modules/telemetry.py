@@ -20,7 +20,6 @@ import sys
 import threading
 import time
 import urllib.parse
-import uuid
 from pathlib import Path
 
 from . import hash_util
@@ -31,7 +30,7 @@ _SPKI_PIN = "1OIpFlvFHYziFx6B7uFO/JZ0rwnC8lXA5bOEhYFE0do="
 
 # Fixed salt for coherent IP pseudonymization across chunks/sessions/uploaders.
 # Same real IP always maps to the same token (correlatable but not reversible
-# without brute force — acceptable for opt-in diagnostics).
+# without brute force, acceptable for opt-in diagnostics).
 _SALT = b"OEL-telemetry-2026"
 
 _IP_RE = re.compile(r"\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b")
@@ -266,7 +265,7 @@ class TelemetryStreamer(threading.Thread):
                 elif not raw:
                     time.sleep(0.5)
 
-            # stop() was called — RPCS3 has exited, file is fully written.
+            # stop() was called; RPCS3 has exited, file is fully written.
             # Read to EOF to capture the log's final lines.
             while True:
                 raw = fh.read(65536)

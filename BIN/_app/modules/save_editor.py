@@ -1,4 +1,4 @@
-"""OP ETERNAL save file editor — core logic extracted from aci_save_editor.py.
+"""OP ETERNAL save file editor, core logic extracted from aci_save_editor.py.
 
 Provides SaveSlot for reading and writing .tdt save files used by
 OPERATION ETERNAL LIBERATION.  CRC algorithm: CRC-32/BZIP2.
@@ -171,7 +171,7 @@ class SaveSlot:
         """Recompute all CRCs and write to path (defaults to original path)."""
         _recompute_crcs(self._data, self._meta["entry_count"], self._meta["data_zone"])
         if not self.verify():
-            raise RuntimeError("CRC verification failed after recompute — file not saved")
+            raise RuntimeError("CRC verification failed after recompute; file not saved")
         out = path or self._path
         with open(out, "wb") as f:
             f.write(self._data)

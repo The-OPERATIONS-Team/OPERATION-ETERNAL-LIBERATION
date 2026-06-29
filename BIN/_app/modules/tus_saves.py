@@ -1,4 +1,4 @@
-"""TUS save backup and restore — ported from clear/restore_tus_save.ps1.
+"""TUS save backup and restore, ported from clear/restore_tus_save.ps1.
 
 Backup files live at:
     <tus_root>/<comm_id>/<npid>/backups/YYYY-MM-DD_HHMMSS_<comm_id>_<slot20d>.tdt

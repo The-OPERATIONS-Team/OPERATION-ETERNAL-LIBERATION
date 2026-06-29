@@ -1,4 +1,4 @@
-"""TSS file management — presence check and local copy."""
+"""TSS file management: presence check and local copy."""
 import os
 import shutil
 
