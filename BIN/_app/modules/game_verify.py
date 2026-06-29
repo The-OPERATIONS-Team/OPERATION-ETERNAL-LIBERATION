@@ -192,3 +192,19 @@ def fingerprint(result: VerifyResult) -> str:
         if fr.sha256:
             h.update(f"{fr.rel}:{fr.sha256}\n".encode("utf-8"))
     return h.hexdigest()
+
+
+def install_signature(game_dir: Path, param_sfo: Path) -> str:
+    """SHA-256 over the (path, size, mtime) of PARAM.SFO and every verifiable
+    file. Lets the launcher re-verify a changed install without re-hashing on
+    every poll."""
+    h = hashlib.sha256()
+    targets = [("PARAM.SFO", Path(param_sfo))]
+    targets += list(iter_game_files(Path(game_dir)))
+    for rel, p in targets:
+        try:
+            st = p.stat()
+            h.update(f"{rel}:{st.st_size}:{st.st_mtime_ns}\n".encode("utf-8"))
+        except OSError:
+            h.update(f"{rel}:missing\n".encode("utf-8"))
+    return h.hexdigest()

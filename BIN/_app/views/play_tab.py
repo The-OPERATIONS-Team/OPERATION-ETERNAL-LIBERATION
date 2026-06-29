@@ -25,6 +25,12 @@ from views.game_verify_dialog import GameVerifyDialog
 class PlayTab(QWidget):
     launch_requested = Signal()
 
+    _VERIFY_FAIL_TOOLTIP = (
+        "Verification of at least one of your game files has failed. "
+        "You may encounter issues during gameplay. Make sure to have installed "
+        "your game and patches completely and in the correct order."
+    )
+
     def __init__(self, settings: dict, parent=None):
         super().__init__(parent)
         self._settings = settings
@@ -185,11 +191,7 @@ class PlayTab(QWidget):
         self._verify_warning = QLabel()
         warn_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning)
         self._verify_warning.setPixmap(warn_icon.pixmap(16, 16))
-        self._verify_warning.setToolTip(
-            "Verification of at least one of your game files has failed. "
-            "You may encounter issues during gameplay. Make sure to have installed "
-            "your game and patches completely and in the correct order."
-        )
+        self._verify_warning.setToolTip(self._VERIFY_FAIL_TOOLTIP)
         self._verify_warning.setVisible(False)
         self._verify_ok = QLabel()
         ok_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton)
@@ -313,6 +315,9 @@ class PlayTab(QWidget):
         self._tss_hint.setVisible(not tss_ok)
 
     def _on_verify_started(self):
+        # Re-verify: drop the stale result icons while the new check runs.
+        self._verify_ok.setVisible(False)
+        self._verify_warning.setVisible(False)
         self._verify_progress.setText("Checking...")
         self._verify_progress.setVisible(True)
 
@@ -321,20 +326,31 @@ class PlayTab(QWidget):
 
     def _on_verify_finished(self, result):
         self._verify_progress.setVisible(False)
+        self._verify_warning.setToolTip(self._VERIFY_FAIL_TOOLTIP)
         self._verify_warning.setVisible(not result.ok)
         self._verify_ok.setVisible(result.ok)
 
-    def _on_verify_failed(self):
+    def _on_verify_failed(self, error: str):
         self._verify_progress.setVisible(False)
+        self._verify_ok.setVisible(False)
+        self._verify_warning.setToolTip(
+            "Game file verification could not complete:\n"
+            f"{error}\n\n"
+            "Click \"Verify game files\" to try again."
+        )
+        self._verify_warning.setVisible(True)
 
     def _open_verify_dialog(self):
         result = self._vm.verify_result
-        if result is None:
-            QMessageBox.information(
-                self, "Verifying game files",
-                "Game files are still being verified. Please try again in a moment.")
+        if result is not None:
+            GameVerifyDialog(result, self).exec()
             return
-        GameVerifyDialog(result, self).exec()
+        if self._vm.verify_errored and not self._vm.verify_running:
+            self._vm.force_verify()
+            return
+        QMessageBox.information(
+            self, "Verifying game files",
+            "Game files are still being verified. Please try again in a moment.")
 
     def _on_launch_clicked(self):
         # Gate the launch on the detected edition and the verification result.
@@ -365,6 +381,17 @@ class PlayTab(QWidget):
                 "You may encounter issues during gameplay. Make sure to have "
                 "installed your game and patches completely and in the correct "
                 "order.\n\nUse \"Verify game files\" for details. Launch anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        elif decision == PlayViewModel.LAUNCH_VERIFY_ERROR:
+            answer = QMessageBox.warning(
+                self, "Verification incomplete",
+                "Game file verification could not complete, so your install "
+                "could not be checked. You may encounter issues during "
+                "gameplay.\n\nLaunch anyway?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
