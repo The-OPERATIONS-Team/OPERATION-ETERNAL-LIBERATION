@@ -36,11 +36,51 @@ PROFILES: dict[str, GameProfile] = {
 ACTIVE: GameProfile = PROFILES["NPUB31347"]
 
 
-def find_installed(game_base) -> GameProfile | None:
-    """Return the profile whose game folder is present under game_base
-    (dev_hdd0/game), supported or not, else None."""
+@dataclass(frozen=True)
+class InstalledGame:
+    profile: GameProfile
+    game_dir: Path        # directory holding PARAM.SFO and USRDIR
+
+    @property
+    def param_sfo(self) -> Path:
+        return self.game_dir / "PARAM.SFO"
+
+
+def _read_games_yml(path) -> dict:
+    """Serial -> directory map from an RPCS3 games.yml. Parsed leniently
+    ('SERIAL: path' per line, value optionally quoted) to avoid a YAML dep;
+    the drive-letter colon stays with the value since we split on the first."""
+    out: dict[str, str] = {}
+    try:
+        text = Path(path).read_text("utf-8", "replace")
+    except OSError:
+        return out
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, sep, val = line.partition(":")
+        if not sep:
+            continue
+        val = val.strip().strip('"').strip("'")
+        if key.strip() and val:
+            out[key.strip()] = val
+    return out
+
+
+def find_installed(game_base, games_yml=None) -> InstalledGame | None:
+    """Locate an installed title, supported or not, else None. Prefers the
+    emulator's virtual HDD (where Install Packages lands), then falls back to a
+    folder the user added through RPCS3 (recorded in games.yml)."""
     base = Path(game_base)
     for profile in PROFILES.values():
-        if (base / profile.title_id / "PARAM.SFO").is_file():
-            return profile
+        game_dir = base / profile.title_id
+        if (game_dir / "PARAM.SFO").is_file():
+            return InstalledGame(profile, game_dir)
+    if games_yml is not None:
+        registered = _read_games_yml(games_yml)
+        for profile in PROFILES.values():
+            val = registered.get(profile.title_id)
+            if val and (Path(val) / "PARAM.SFO").is_file():
+                return InstalledGame(profile, Path(val))
     return None

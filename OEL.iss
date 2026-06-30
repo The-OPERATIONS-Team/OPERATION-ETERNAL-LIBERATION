@@ -20,6 +20,10 @@ Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 
+[Tasks]
+; Remembered across updates, so an unchecked shortcut stays unchecked
+Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"
+
 [Dirs]
 ; User drop folder for TSS files
 Name: "{app}\TSS"
@@ -69,4 +73,4 @@ Source: "BIN\_app\rpcn\server_redirs.cfg";         DestDir: "{app}\_app\rpcn";  
 Source: "BIN\_app\rpcn\servers.cfg";               DestDir: "{app}\_app\rpcn";       Flags: onlyifdoesntexist
 
 [Icons]
-Name: "{autodesktop}\Play OPERATION ETERNAL LIBERATION";  Filename: "{app}\Play OPERATION ETERNAL LIBERATION (Windows).bat"
+Name: "{autodesktop}\Play OPERATION ETERNAL LIBERATION";  Filename: "{app}\Play OPERATION ETERNAL LIBERATION (Windows).bat"; IconFilename: "{app}\_app\assets\oel.ico"; Tasks: desktopicon

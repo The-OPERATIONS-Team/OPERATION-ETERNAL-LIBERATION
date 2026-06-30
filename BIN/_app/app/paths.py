@@ -13,6 +13,8 @@ _EXE        = ".exe" if _IS_WIN else ""
 
 APP_DIR     = Path(__file__).resolve().parent.parent   # _app/
 ROOT_DIR    = APP_DIR.parent                            # folder user sees (where TSS/ lives)
+ASSETS_DIR  = APP_DIR / "assets"
+APP_ICON    = ASSETS_DIR / "oel.ico"
 RPCS3_DIR   = APP_DIR / "RPCS3"
 RPCN_DIR    = APP_DIR / "rpcn"
 GAMESERVER_DIR = APP_DIR / "gameserver"
@@ -58,9 +60,15 @@ TELEMETRY_URL        = "https://oel-telemetry.killerbyte.xyz"
 
 FIRMWARE_INDICATOR = PORTABLE_DIR / "dev_flash" / "sys" / "external" / "libsre.sprx"
 GAME_BASE_DIR      = PORTABLE_DIR / "dev_hdd0" / "game"
+GAMES_YML          = RPCS3_CFG_DIR / "games.yml"
 GAME_INDICATOR     = GAME_BASE_DIR / games.ACTIVE.title_id / "PARAM.SFO"
 GAME_USRDIR        = GAME_BASE_DIR / games.ACTIVE.title_id / "USRDIR"
 GAME_MANIFEST      = APP_DIR / "data" / "game_manifest.json"
+
+
+def find_installed_game():
+    """Resolve the installed title, checking the virtual HDD then games.yml."""
+    return games.find_installed(GAME_BASE_DIR, GAMES_YML)
 
 
 def rpcs3_launch_args() -> list:

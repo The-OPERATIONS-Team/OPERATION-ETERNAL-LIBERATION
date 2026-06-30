@@ -16,9 +16,9 @@ from app.paths import (
     PORTABLE_DIR, RPCN_YML, GAME_USRDIR,
     VERSION, RELEASE_CHANNEL, GITHUB_REPO,
     COMMUNITY_RPCN_HOST, OPERATIONS_GAME_ADDR, TELEMETRY_URL,
-    FIRMWARE_INDICATOR, GAME_INDICATOR,
+    FIRMWARE_INDICATOR,
     rpcs3_launch_args, rpcs3_log_path, gameserver_python,
-    privileged_port_command, privileged_port_help,
+    privileged_port_command, privileged_port_help, find_installed_game,
 )
 from app.settings import save_settings, parse_remote_addr
 from modules import save_editor, tus_saves, processes
@@ -101,7 +101,7 @@ class LaunchController(QObject):
         issues = []
         if not FIRMWARE_INDICATOR.exists():
             issues.append("PS3 firmware is not installed.")
-        if not GAME_INDICATOR.exists():
+        if find_installed_game() is None:
             issues.append("OPERATION ETERNAL LIBERATION is not installed.")
         if issues:
             msg = "The following items are missing:\n\n" + "\n".join(f"  - {i}" for i in issues)

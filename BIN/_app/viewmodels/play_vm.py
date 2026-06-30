@@ -5,8 +5,8 @@ from dataclasses import dataclass
 
 from PySide6.QtCore import QObject, Signal, QTimer
 
-from app.paths import GAME_MANIFEST, FIRMWARE_INDICATOR, GAME_BASE_DIR, TSS_SRC_DIR
-from modules import games, tss as tss_mod, game_verify
+from app.paths import GAME_MANIFEST, FIRMWARE_INDICATOR, TSS_SRC_DIR, find_installed_game
+from modules import tss as tss_mod, game_verify
 from workers.game_verify_worker import GameVerifyWorker
 
 
@@ -56,25 +56,26 @@ class PlayViewModel(QObject):
 
     def refresh(self):
         fw_ok   = FIRMWARE_INDICATOR.exists()
-        profile = games.find_installed(GAME_BASE_DIR)
+        install = find_installed_game()
         n       = tss_mod.count_present(str(TSS_SRC_DIR))
         total   = len(tss_mod.TSS_FILES)
 
+        profile = install.profile if install else None
         self._unsupported_profile = profile if (profile and not profile.supported) else None
-        if profile is None:
+        if install is None:
             game, region = "missing", ""
         elif not profile.supported:
             game, region = "unsupported", profile.region
         else:
             game, region = "ok", ""
-            self._maybe_start_verification(profile)
+            self._maybe_start_verification(install)
 
         self.setup_status.emit(SetupStatus(fw_ok, game, region, n, total))
 
-    def _maybe_start_verification(self, profile):
+    def _maybe_start_verification(self, install):
         if self._verify_worker is not None:
             return
-        sig = self._install_signature(profile)
+        sig = self._install_signature(install)
         if sig == self._verify_signature:
             self._pending_signature = sig
             return
@@ -82,31 +83,29 @@ class PlayViewModel(QObject):
             # First poll at a new signature: wait one more to let the install settle.
             self._pending_signature = sig
             return
-        self._start_verification(profile, sig)
+        self._start_verification(install, sig)
 
     def force_verify(self):
         """Re-run verification now, ignoring the change check (manual retry)."""
         if self._verify_worker is not None:
             return
-        profile = games.find_installed(GAME_BASE_DIR)
-        if profile is None or not profile.supported:
+        install = find_installed_game()
+        if install is None or not install.profile.supported:
             return
-        self._start_verification(profile, self._install_signature(profile))
+        self._start_verification(install, self._install_signature(install))
 
-    def _install_signature(self, profile) -> str:
-        game_dir = GAME_BASE_DIR / profile.title_id
-        return game_verify.install_signature(game_dir, game_dir / "PARAM.SFO")
+    def _install_signature(self, install) -> str:
+        return game_verify.install_signature(install.game_dir, install.param_sfo)
 
-    def _start_verification(self, profile, sig):
+    def _start_verification(self, install, sig):
         self._verify_signature = sig
         self._pending_signature = sig
         self._verify_result = None
         self._verify_error = False
         self._game_hash = ""
-        game_dir = GAME_BASE_DIR / profile.title_id
-        entry = game_verify.game_entry(self._manifest, profile.title_id)
+        entry = game_verify.game_entry(self._manifest, install.profile.title_id)
         self.verify_started.emit()
-        self._verify_worker = GameVerifyWorker(game_dir, game_dir / "PARAM.SFO", entry, self)
+        self._verify_worker = GameVerifyWorker(install.game_dir, install.param_sfo, entry, self)
         self._verify_worker.progress.connect(self.verify_progress)
         self._verify_worker.done.connect(self._on_verify_done)
         self._verify_worker.failed.connect(self._on_verify_failed)
