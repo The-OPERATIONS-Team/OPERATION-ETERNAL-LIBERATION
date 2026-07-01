@@ -92,9 +92,16 @@ else
     # Launcher
     cp "$ROOT/BIN/_app/launcher.py" "$ROOT/BIN/_app/setup.sh"   "$CBUNDLE/_app/"
     cp -r "$ROOT/BIN/_app/assets"                               "$CBUNDLE/_app/assets"
-    mkdir -p "$CBUNDLE/_app/modules" "$CBUNDLE/_app/tools"
+    mkdir -p "$CBUNDLE/_app/modules" "$CBUNDLE/_app/tools" "$CBUNDLE/_app/data"
     cp "$ROOT/BIN/_app/modules/"*.py                            "$CBUNDLE/_app/modules/"
     cp "$ROOT/BIN/_app/tools/"*.py                              "$CBUNDLE/_app/tools/"
+    # Launcher packages (launcher.py imports these)
+    for pkg in app views viewmodels workers; do
+        mkdir -p "$CBUNDLE/_app/$pkg"
+        cp "$ROOT/BIN/_app/$pkg/"*.py                           "$CBUNDLE/_app/$pkg/"
+    done
+    # Game-file verification manifest
+    cp "$ROOT/BIN/_app/data/game_manifest.json"                "$CBUNDLE/_app/data/"
     cp -r "$ROOT/BIN/_app/patches"                              "$CBUNDLE/_app/patches"
 
     # Game server

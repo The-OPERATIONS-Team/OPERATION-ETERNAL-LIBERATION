@@ -43,6 +43,15 @@ Source: "BIN\_app\launcher.py";                    DestDir: "{app}\_app";       
 Source: "BIN\_app\setup.bat";                      DestDir: "{app}\_app";            Flags: ignoreversion
 Source: "BIN\_app\assets\*";                       DestDir: "{app}\_app\assets";     Flags: ignoreversion recursesubdirs
 
+; Launcher packages (launcher.py imports these)
+Source: "BIN\_app\app\*.py";                       DestDir: "{app}\_app\app";        Flags: ignoreversion
+Source: "BIN\_app\views\*.py";                     DestDir: "{app}\_app\views";      Flags: ignoreversion
+Source: "BIN\_app\viewmodels\*.py";                DestDir: "{app}\_app\viewmodels"; Flags: ignoreversion
+Source: "BIN\_app\workers\*.py";                   DestDir: "{app}\_app\workers";    Flags: ignoreversion
+
+; Game-file verification manifest
+Source: "BIN\_app\data\game_manifest.json";        DestDir: "{app}\_app\data";       Flags: ignoreversion
+
 ; Embeddable Python runtime (bundled so first-run needs no download).
 ; Provisioned on the build machine by package.bat (via setup.bat); gitignored
 ; like the RPCS3 binaries. setup.bat stays as a runtime fallback if absent.
