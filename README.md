@@ -26,7 +26,23 @@ cd OPERATION-ETERNAL-LIBERATION
 
 The game server uses ports 80 and 443, so on first launch you are asked for your password to allow that.
 
-### Both platforms
+### macOS (Apple Silicon)
+
+Download `OP-ETERNAL-*-macos-arm64.tar.xz`, extract it, and open
+**OPERATION ETERNAL LIBERATION.app**. You can also run the command entry point:
+
+```bash
+tar -xJf OP-ETERNAL-*-macos-arm64.tar.xz
+cd OPERATION-ETERNAL-LIBERATION
+"./Play OPERATION ETERNAL LIBERATION (macOS).command"
+```
+
+The first game launch displays the normal macOS administrator prompt because
+the local game server must bind ports 80 and 443. The distributed application
+is ad-hoc signed rather than notarized; if Gatekeeper quarantines the extracted
+folder, right-click the app and choose **Open** once.
+
+### All platforms
 
 You provide:
 
@@ -40,7 +56,9 @@ The **Saves** tab includes a save editor, a save backup browser, and a "new game
 
 ### Updating
 
-On Windows, run a newer installer over the existing install. On Linux, extract a newer tarball over the existing folder. Your RPCS3 portable data, RPCN config files, launcher settings, and `TSS` folder are preserved.
+On Windows, run a newer installer over the existing install. On Linux or
+macOS, extract a newer tarball over the existing folder. Your RPCS3 portable
+data, RPCN config files, launcher settings, and `TSS` folder are preserved.
 
 ### Troubleshooting
 
@@ -50,6 +68,14 @@ On Windows, run a newer installer over the existing install. On Linux, extract a
 - **Can't host or join rooms.** Right-click the game in RPCS3, open *Custom Configuration > Network*, enable **UPnP**.
 - **TSS warning on launch.** Drop your 15 TSS files into the `TSS` folder.
 - **"Game server ports" error (Linux).** Run the command shown in the dialog once, then launch again.
+- **The macOS administrator prompt does not appear.** Launch through the app
+  or the macOS `.command` file, not by running `launcher.py` from another
+  environment. Check `/tmp/oel-gameserver-<uid>.log` if the server fails.
+- **Campaign cutscene remains black on macOS.** Confirm the package contains
+  the OEL-patched `RPCS3.app`; an unrelated or older RPCS3 build may stall in
+  the CRI Mana decoder.
+- **macOS logs.** RPCS3 writes `~/Library/Caches/rpcs3/RPCS3.log`; the local
+  game server writes `_app/gameserver/gameserver.log`.
 
 ## Hosting your own server
 
