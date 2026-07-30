@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 
 from . import games
@@ -111,6 +112,34 @@ def patch_game_config(cfg_path: str, lan_ip: str, bind_address: str = "", upnp: 
     content = re.sub(r"Bind address:.*",
                      f"Bind address: {bind_address or '0.0.0.0'}", content)
     content = re.sub(r"Frame limit:.*", "Frame limit: 30", content)
+    if sys.platform == "darwin":
+        content = re.sub(
+            r"^(\s*)Accurate RSX reservation access:.*$",
+            r"\1Accurate RSX reservation access: true",
+            content,
+            flags=re.MULTILINE,
+        )
+        content = re.sub(
+            r"^(\s*)Driver Wake-Up Delay:.*$",
+            r"\1Driver Wake-Up Delay: 200",
+            content,
+            flags=re.MULTILINE,
+        )
+        if re.search(r"^\s+sceNp:", content, flags=re.MULTILINE):
+            content = re.sub(
+                r"^(\s+)sceNp:.*$",
+                r"\1sceNp: Error",
+                content,
+                flags=re.MULTILINE,
+            )
+        else:
+            content = re.sub(
+                r"^Log:\s*$",
+                "Log:\n  sceNp: Error",
+                content,
+                count=1,
+                flags=re.MULTILINE,
+            )
 
     with open(cfg_path, "w", encoding="utf-8") as f:
         f.write(content)

@@ -3,6 +3,8 @@
 Keeps a window reference to parent its modal dialogs and read the tabs, because
 the launch flow is a chain of synchronous modal dialogs.
 """
+import os
+import time
 import uuid
 from pathlib import Path
 
@@ -11,7 +13,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.paths import (
-    _IS_WIN, APP_DIR, RPCS3_DIR, RPCN_DIR, GAMESERVER_DIR,
+    _IS_WIN, _IS_MAC, APP_DIR, RPCS3_DIR, RPCN_DIR, GAMESERVER_DIR,
     RPCS3_EXE, RPCN_EXE, GAMESERVER_SCRIPT, GAMESERVER_LOG,
     PORTABLE_DIR, RPCN_YML, GAME_USRDIR,
     VERSION, RELEASE_CHANNEL, GITHUB_REPO,
@@ -233,19 +235,45 @@ class LaunchController(QObject):
 
         if not processes.is_port_open(swap_ip):
             gs_python = gameserver_python()
-            if (not _IS_WIN
-                    and processes.needs_port_privilege(str(gs_python), swap_ip)
-                    and not self._grant_port_privilege(gs_python, swap_ip)):
+            if _IS_MAC:
+                ok = processes.ensure_gameserver_certificate(
+                    str(gs_python), str(GAMESERVER_DIR)
+                )
+                if ok:
+                    ok = processes.launch_macos_privileged(
+                        str(gs_python), gs_args, str(GAMESERVER_DIR), os.getpid()
+                    )
+                if ok:
+                    for _ in range(50):
+                        if processes.is_port_open(swap_ip):
+                            break
+                        time.sleep(0.1)
+                    ok = processes.is_port_open(swap_ip)
+                    if ok:
+                        self._win._play_tab.set_process_status("gameserver", True)
+            else:
+                if (not _IS_WIN
+                        and processes.needs_port_privilege(str(gs_python), swap_ip)
+                        and not self._grant_port_privilege(gs_python, swap_ip)):
+                    self._win._play_tab.set_launch_enabled(True)
+                    return
+                ok = self._gameserver.launch(
+                    str(gs_python),
+                    gs_args,
+                    cwd=str(GAMESERVER_DIR),
+                    new_console=True,
+                )
+            if not ok:
+                detail = (
+                    f"\n\nSee /tmp/oel-gameserver-{os.getuid()}.log for details."
+                    if _IS_MAC else ""
+                )
+                QMessageBox.warning(
+                    self._win, "Gameserver",
+                    "Could not start the game server." + detail,
+                )
                 self._win._play_tab.set_launch_enabled(True)
                 return
-            ok = self._gameserver.launch(
-                str(gs_python),
-                gs_args,
-                cwd=str(GAMESERVER_DIR),
-                new_console=True,
-            )
-            if not ok:
-                QMessageBox.warning(self._win, "Gameserver", "Could not start the game server.")
 
         if rpcn_mode == "self_hosted" and not self._rpcn_proc.is_running():
             QTimer.singleShot(2000, lambda: self._rpcn_proc.launch(

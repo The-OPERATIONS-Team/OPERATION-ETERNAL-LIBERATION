@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QTabWidget, QVBoxLayout, QMessageBox,
 )
 
-from app.paths import _IS_WIN, ROOT_DIR, VERSION
+from app.paths import _IS_WIN, _IS_MAC, ROOT_DIR, VERSION
 from app.settings import load_settings, save_settings
 from views.play_tab import PlayTab
 from views.saves_tab import SavesTab
@@ -44,7 +44,8 @@ class ACILauncher(QMainWindow):
         if self._settings.get("auto_check_updates"):
             QTimer.singleShot(1500, self._controller.check_for_updates_startup)
 
-        if not _IS_WIN and not self._settings.get("desktop_shortcut_offered"):
+        if (not _IS_WIN and not _IS_MAC
+                and not self._settings.get("desktop_shortcut_offered")):
             QTimer.singleShot(1200, self._offer_desktop_shortcut)
 
     def _build_ui(self):

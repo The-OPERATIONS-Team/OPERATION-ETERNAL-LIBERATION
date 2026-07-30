@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CLIENT_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+exec "$CLIENT_ROOT/Play OPERATION ETERNAL LIBERATION (macOS).command" "$@"

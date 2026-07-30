@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 _IS_WIN     = sys.platform == "win32"
+_IS_MAC     = sys.platform == "darwin"
 _EXE        = ".exe" if _IS_WIN else ""
 
 APP_DIR     = Path(__file__).resolve().parent.parent   # _app/
@@ -29,6 +30,8 @@ PYTHON_EXE  = APP_DIR / "python" / "python.exe" if _IS_WIN else APP_DIR / "pytho
 def _resolve_rpcs3_exe() -> Path:
     if _IS_WIN:
         return RPCS3_DIR / "rpcs3.exe"
+    if _IS_MAC:
+        return RPCS3_DIR / "RPCS3.app" / "Contents" / "MacOS" / "rpcs3"
     images = sorted(RPCS3_DIR.glob("*.AppImage"))
     if images:
         return images[0]
@@ -82,10 +85,11 @@ def rpcs3_launch_args() -> list:
 
 
 def rpcs3_log_path() -> Path:
-    """RPCS3.log location. fs::get_log_dir is the config dir on Windows but the
-    cache dir on Linux, which ignores portable mode."""
+    """Return RPCS3's platform-specific log path."""
     if _IS_WIN:
         return PORTABLE_DIR / "log" / "RPCS3.log"
+    if _IS_MAC:
+        return Path.home() / "Library" / "Caches" / "rpcs3" / "RPCS3.log"
     cache = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.environ.get("HOME", "."), ".cache")
     return Path(cache) / "rpcs3" / "RPCS3.log"
 
@@ -103,6 +107,8 @@ def gameserver_python() -> Path:
 
 def privileged_port_command() -> str:
     """The shell command that lets the game server bind ports 80 and 443."""
+    if _IS_MAC:
+        return "Launch OEL normally and approve the macOS administrator prompt."
     py = gameserver_python()
     if py.name == "python3-gameserver":
         return f"sudo setcap cap_net_bind_service=+ep '{py}'"
@@ -110,7 +116,12 @@ def privileged_port_command() -> str:
 
 
 def privileged_port_help() -> str:
-    """Explanation for the Linux <1024 port restriction (ports 80/443)."""
+    """Explain the platform's restriction on ports 80 and 443."""
+    if _IS_MAC:
+        return (
+            "The game server must listen on ports 80 and 443. macOS will show "
+            "an administrator prompt when the server starts."
+        )
     msg = ("The game server must listen on ports 80 and 443, which Linux "
            "reserves for privileged processes.\n\n"
            "Run this once in a terminal, then launch again:\n\n"

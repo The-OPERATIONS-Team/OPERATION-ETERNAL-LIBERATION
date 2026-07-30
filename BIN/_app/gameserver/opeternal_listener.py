@@ -515,6 +515,12 @@ def main():
                         help="Remote port to forward HTTP (:80) traffic to. Default 80.")
     parser.add_argument("--forward-https-port", type=int, default=443,
                         help="Remote port to forward HTTPS (:443) traffic to. Default 443.")
+    parser.add_argument(
+        "--watch-pid",
+        type=int,
+        default=None,
+        help="Exit when this process ID is no longer running.",
+    )
     args = parser.parse_args()
 
     _rotate_log()
@@ -559,9 +565,18 @@ def main():
 
     try:
         while True:
+            if args.watch_pid is not None:
+                try:
+                    os.kill(args.watch_pid, 0)
+                except ProcessLookupError:
+                    log(f"watched process {args.watch_pid} exited; shutting down")
+                    break
+                except PermissionError:
+                    pass
             time.sleep(1)
     except KeyboardInterrupt:
         log("shutting down")
+    finally:
         _close_log_on_exit()
 
 
