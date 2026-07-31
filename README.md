@@ -26,10 +26,24 @@ cd OPERATION-ETERNAL-LIBERATION
 
 The game server uses ports 80 and 443, so on first launch you are asked for your password to allow that.
 
-### macOS (Apple Silicon)
+### macOS quick start (Apple Silicon)
 
-Download `OP-ETERNAL-*-macos-arm64.tar.xz`, extract it, and open
-**OPERATION ETERNAL LIBERATION.app**. You can also run the command entry point:
+> Requires an Apple Silicon Mac (M1 or newer) running macOS 14.4 or newer.
+> Intel Macs are not supported.
+
+1. Download `OP-ETERNAL-*-macos-arm64.tar.xz` from the
+   [releases page](https://github.com/The-OPERATIONS-Team/OPERATION-ETERNAL-LIBERATION/releases)
+   and extract it.
+2. Open **OPERATION ETERNAL LIBERATION.app**. If Gatekeeper blocks the first
+   launch, right-click the app and choose **Open** once.
+3. Approve the macOS administrator prompt. The local game server needs ports
+   80 and 443.
+4. In the bundled RPCS3, install your PS3 firmware and game version 2.11, then
+   place all 15 TSS files in the package's `TSS` folder.
+5. Sign in to RPCN and start the game through the OEL app. Use the OEL app for
+   every later launch so its patches and network configuration are applied.
+
+Terminal users can start the same launcher with:
 
 ```bash
 tar -xJf OP-ETERNAL-*-macos-arm64.tar.xz
@@ -37,10 +51,7 @@ cd OPERATION-ETERNAL-LIBERATION
 "./Play OPERATION ETERNAL LIBERATION (macOS).command"
 ```
 
-The first game launch displays the normal macOS administrator prompt because
-the local game server must bind ports 80 and 443. The distributed application
-is ad-hoc signed rather than notarized; if Gatekeeper quarantines the extracted
-folder, right-click the app and choose **Open** once.
+The application is ad-hoc signed rather than notarized.
 
 ### All platforms
 
