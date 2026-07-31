@@ -12,6 +12,13 @@ On Linux (x86_64, distros from roughly 2022 onward - RPCS3 needs glibc 2.35), ru
 ./Play\ OPERATION\ ETERNAL\ LIBERATION\ \(Linux\).sh
 ```
 
+On Apple Silicon macOS 14.4 or newer, open
+**OPERATION ETERNAL LIBERATION.app**, or run:
+
+```bash
+./Play\ OPERATION\ ETERNAL\ LIBERATION\ \(macOS\).command
+```
+
 The game server uses ports 80 and 443, so on first launch you are asked for
 your password to allow that.
 
@@ -48,9 +55,9 @@ The **Saves** tab has three things:
 
 ## Updates
 
-On Windows, run the newer installer over the existing install. On Linux,
-extract the newer tarball over the existing folder. Either way your RPCS3
-portable data, launcher settings, and `TSS` folder are preserved.
+On Windows, run the newer installer over the existing install. On Linux or
+macOS, extract the newer tarball over the existing folder. Either way your
+RPCS3 portable data, launcher settings, and `TSS` folder are preserved.
 
 ## Troubleshooting
 
@@ -73,6 +80,14 @@ portable data, launcher settings, and `TSS` folder are preserved.
   ```
 
 - **Where the logs are (Linux).** RPCS3: `~/.cache/rpcs3/RPCS3.log`. Game server: `_app/gameserver/gameserver.log`.
+- **Game server fails on macOS.** Approve the native administrator prompt and
+  check `/tmp/oel-gameserver-<uid>.log`. The elevated server exits
+  automatically when the launcher closes.
+- **Campaign cutscene is black on macOS.** Use the `RPCS3.app` included in the
+  OEL package. Older or unrelated builds can stall in CRI Mana video decoding.
+- **Where the logs are (macOS).** RPCS3:
+  `~/Library/Caches/rpcs3/RPCS3.log`. Game server:
+  `_app/gameserver/gameserver.log`.
 
 ## Hosting your own server
 

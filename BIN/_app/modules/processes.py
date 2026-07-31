@@ -8,11 +8,13 @@ Supports two launch modes:
     fallback when none is installed).  State is polled every 2 s via QTimer.
 """
 import os
+import shlex
 import shutil
 import signal
 import socket
 import subprocess
 import sys
+import uuid
 
 from PySide6.QtCore import QObject, QProcess, QTimer, Signal
 
@@ -125,6 +127,70 @@ def grant_port_capability(python_exe: str) -> str:
     # pkexec reports a dismissed prompt as 126; systemd-run gives no
     # distinct code, so a cancel there surfaces as "failed".
     return "cancelled" if res.returncode == 126 else "failed"
+
+
+def launch_macos_privileged(
+    program: str,
+    args: list[str],
+    cwd: str,
+    watch_pid: int,
+) -> bool:
+    """Start the game server through the native macOS administrator prompt.
+
+    The child redirects its inherited descriptors so ``osascript`` can return
+    immediately. ``--watch-pid`` makes the elevated server stop when the
+    launcher process exits.
+    """
+    if sys.platform != "darwin":
+        return False
+
+    del cwd  # launchctl starts the script by absolute path.
+    log_path = f"/tmp/oel-gameserver-{os.getuid()}.log"
+    label = f"community.operations-team.oel.gameserver.{watch_pid}.{uuid.uuid4().hex[:8]}"
+    argv = [program, *args, "--watch-pid", str(watch_pid)]
+    launch_argv = [
+        "/bin/launchctl", "submit",
+        "-l", label,
+        "-o", log_path,
+        "-e", log_path,
+        "--", *argv,
+    ]
+    command = " ".join(shlex.quote(item) for item in launch_argv)
+    try:
+        result = subprocess.run(
+            [
+                "/usr/bin/osascript",
+                "-e", "on run argv",
+                "-e", "do shell script (item 1 of argv) with administrator privileges",
+                "-e", "end run",
+                "--", command,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
+def ensure_gameserver_certificate(python_exe: str, cwd: str) -> bool:
+    """Generate the local TLS files as the current, non-privileged user."""
+    try:
+        result = subprocess.run(
+            [
+                python_exe,
+                "-c",
+                "import opeternal_listener as server; server.ensure_cert()",
+            ],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
 
 
 class ManagedProcess(QObject):

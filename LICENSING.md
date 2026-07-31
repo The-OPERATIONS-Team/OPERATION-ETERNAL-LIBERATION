@@ -5,9 +5,9 @@ This repository contains original code authored by The -OPERATIONS- Team alongsi
 | Path | License | Notes |
 |---|---|---|
 | `BIN/_app/**` (launcher, gameserver, modules, patches, assets) | AGPL-3.0-or-later, with RPCS3 compatibility exception | Original code. See [LICENSE](LICENSE). |
-| `BIN/Play OPERATION ETERNAL LIBERATION.bat` | AGPL-3.0-or-later, with RPCS3 compatibility exception | Original code. |
+| `BIN/Play OPERATION ETERNAL LIBERATION.*` | AGPL-3.0-or-later, with RPCS3 compatibility exception | Original code. |
 | `BIN/docker/**`, `BIN/docker-compose.yml` | AGPL-3.0-or-later, with RPCS3 compatibility exception | Original code. |
-| `OEL.iss`, `package.bat` | AGPL-3.0-or-later, with RPCS3 compatibility exception | Original code. |
+| `OEL.iss`, `package.bat`, `package.sh`, `package-macos.sh`, `packaging/**` | AGPL-3.0-or-later, with RPCS3 compatibility exception | Original code. |
 | `ci/**`, `WORK/**` | AGPL-3.0-or-later, with RPCS3 compatibility exception | Original code. |
 | `SRC/clone-git-repos.*`, `SRC/apply-patches.*`, `SRC/reset-git-repos.*`, `SRC/pinned-commits.env`, `SRC/README.md`, `SRC/EXTERN_PATCHES.md` | AGPL-3.0-or-later, with RPCS3 compatibility exception | Original code and documentation. |
 | `SRC/PATCH/RPCS3/*.patch` | GPL-2.0-only | Derivative of RPCS3 sources. Matches the upstream RPCS3 license. |

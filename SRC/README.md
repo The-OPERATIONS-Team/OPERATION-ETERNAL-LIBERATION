@@ -2,9 +2,12 @@
 
 Clone the two repos at the correct commits, then apply the patches.
 
-Windows commands below use the `.bat` scripts; on Linux use the `.sh` scripts the same way.
+Windows commands below use the `.bat` scripts; on Linux and macOS use the
+`.sh` scripts the same way.
 
-If you downloaded the source archive as `OEL-SRC-*.7z` (built on Windows) and are working on Linux, convert line endings and make the scripts executable first:
+If you downloaded the source archive as `OEL-SRC-*.7z` (built on Windows) and
+are working on Linux or macOS, convert line endings and make the scripts
+executable first:
 
 ```
 dos2unix *.sh pinned-commits.env
@@ -52,3 +55,18 @@ cd GIT/rpcn
 cargo build --release
 cp target/release/rpcn ../../BIN/_app/rpcn/rpcn
 ```
+
+### macOS (Apple Silicon)
+
+From the repository root, `ci/build-macos.sh` performs these clone and patch
+steps when needed, selects the Apple Silicon RPCS3 revision from
+`pinned-commits.env`, builds both pinned projects, deploys the self-contained
+`RPCS3.app`, and stages the arm64 RPCN executable:
+
+```bash
+./ci/build-macos.sh
+./ci/provision-macos-python.sh
+./package-macos.sh
+```
+
+See the root `BUILDING.md` for prerequisites and bundle verification details.

@@ -26,7 +26,34 @@ cd OPERATION-ETERNAL-LIBERATION
 
 The game server uses ports 80 and 443, so on first launch you are asked for your password to allow that.
 
-### Both platforms
+### macOS quick start (Apple Silicon)
+
+> Requires an Apple Silicon Mac (M1 or newer) running macOS 14.4 or newer.
+> Intel Macs are not supported.
+
+1. Download `OP-ETERNAL-*-macos-arm64.tar.xz` from the
+   [releases page](https://github.com/The-OPERATIONS-Team/OPERATION-ETERNAL-LIBERATION/releases)
+   and extract it.
+2. Open **OPERATION ETERNAL LIBERATION.app**. If Gatekeeper blocks the first
+   launch, right-click the app and choose **Open** once.
+3. Approve the macOS administrator prompt. The local game server needs ports
+   80 and 443.
+4. In the bundled RPCS3, install your PS3 firmware and game version 2.11, then
+   place all 15 TSS files in the package's `TSS` folder.
+5. Sign in to RPCN and start the game through the OEL app. Use the OEL app for
+   every later launch so its patches and network configuration are applied.
+
+Terminal users can start the same launcher with:
+
+```bash
+tar -xJf OP-ETERNAL-*-macos-arm64.tar.xz
+cd OPERATION-ETERNAL-LIBERATION
+"./Play OPERATION ETERNAL LIBERATION (macOS).command"
+```
+
+The application is ad-hoc signed rather than notarized.
+
+### All platforms
 
 You provide:
 
@@ -40,7 +67,9 @@ The **Saves** tab includes a save editor, a save backup browser, and a "new game
 
 ### Updating
 
-On Windows, run a newer installer over the existing install. On Linux, extract a newer tarball over the existing folder. Your RPCS3 portable data, RPCN config files, launcher settings, and `TSS` folder are preserved.
+On Windows, run a newer installer over the existing install. On Linux or
+macOS, extract a newer tarball over the existing folder. Your RPCS3 portable
+data, RPCN config files, launcher settings, and `TSS` folder are preserved.
 
 ### Troubleshooting
 
@@ -50,6 +79,14 @@ On Windows, run a newer installer over the existing install. On Linux, extract a
 - **Can't host or join rooms.** Right-click the game in RPCS3, open *Custom Configuration > Network*, enable **UPnP**.
 - **TSS warning on launch.** Drop your 15 TSS files into the `TSS` folder.
 - **"Game server ports" error (Linux).** Run the command shown in the dialog once, then launch again.
+- **The macOS administrator prompt does not appear.** Launch through the app
+  or the macOS `.command` file, not by running `launcher.py` from another
+  environment. Check `/tmp/oel-gameserver-<uid>.log` if the server fails.
+- **Campaign cutscene remains black on macOS.** Confirm the package contains
+  the OEL-patched `RPCS3.app`; an unrelated or older RPCS3 build may stall in
+  the CRI Mana decoder.
+- **macOS logs.** RPCS3 writes `~/Library/Caches/rpcs3/RPCS3.log`; the local
+  game server writes `_app/gameserver/gameserver.log`.
 
 ## Hosting your own server
 
