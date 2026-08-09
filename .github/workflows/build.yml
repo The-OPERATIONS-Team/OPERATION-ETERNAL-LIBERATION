@@ -104,11 +104,12 @@ jobs:
             ${{ runner.os }}-ccache-${{ env.COMPILER }}-${{ env.RPCS3_COMMIT }}-
             ${{ runner.os }}-ccache-${{ env.COMPILER }}-
 
-      # Same image and entry point rpcs3 upstream uses for its Linux CI.
-      # The container has Qt 6, LLVM 19, Vulkan, ffmpeg, etc. preinstalled.
+      # Same image and entry point rpcs3 upstream uses for its Linux CI. The tag
+      # carries the LLVM the pinned commit expects, so it moves with the pin: take
+      # it from upstream's own .github/workflows/rpcs3.yml at that commit.
       - name: Build rpcs3 in upstream's CI container
         run: |
-          DOCKER_IMG="rpcs3/rpcs3-ci-jammy:1.13"
+          DOCKER_IMG="rpcs3/rpcs3-ci-jammy:2.0"
           docker pull --quiet "$DOCKER_IMG"
           mkdir -p "$BUILD_ARTIFACTSTAGINGDIRECTORY"
           docker run --rm \
