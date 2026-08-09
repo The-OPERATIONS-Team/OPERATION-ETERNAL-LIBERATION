@@ -1,0 +1,545 @@
+diff --git a/rpcs3/Emu/Cell/PPUModule.cpp b/rpcs3/Emu/Cell/PPUModule.cpp
+index 15ff9b1fa..f22148b81 100644
+--- a/rpcs3/Emu/Cell/PPUModule.cpp
++++ b/rpcs3/Emu/Cell/PPUModule.cpp
+@@ -2381,6 +2381,21 @@ bool ppu_load_exec(const ppu_exec_object& elf, bool virtual_load, const std::str
+ 		}
+ 	}
+ 
++	// Install the Ace Combat Infinity frame-rate hooks; each is a no-op for any
++	// other title. Here because the main module is in memory and not yet
++	// compiled, so the translator picks the redirects up.
++	if (!virtual_load)
++	{
++		extern void aci_cutscene_try_install();
++		aci_cutscene_try_install();
++
++		extern void aci_forcestep_try_install();
++		aci_forcestep_try_install();
++
++		extern void aci_drop_fix_try_install();
++		aci_drop_fix_try_install();
++	}
++
+ 	// Read control flags (0 if doesn't exist)
+ 	g_ps3_process_info.ctrl_flags1 = 0;
+ 
+diff --git a/rpcs3/Emu/Cell/PPUThread.cpp b/rpcs3/Emu/Cell/PPUThread.cpp
+index 82564a124..5562c25ab 100644
+--- a/rpcs3/Emu/Cell/PPUThread.cpp
++++ b/rpcs3/Emu/Cell/PPUThread.cpp
+@@ -5682,3 +5682,395 @@ static void ppu_initialize2(jit_compiler& jit, const ppu_module<lv2_obj>& module
+ 	jit.add(std::move(_module), cache_path);
+ #endif // LLVM_AVAILABLE
+ }
++
++// Ace Combat Infinity (NPUB31347): three fixes that let the game run above its
++// native 30fps without changing how it plays. Each is inert for every other
++// title, and each redirects one guest instruction through a thunk using
++// ppu_form_branch_to_code plus the faux-block registry, which the LLVM
++// translator honours where ppu_breakpoint does not.
++//
++// 1. Engine cutscenes advance by a fixed step per rendered frame with no
++// delta-time scaling, so at a raised vblank rate they play proportionally fast
++// and the pre-match cutscene ends early, giving that player a head start. The
++// clock is not reachable from the PPU side, so the fix detects a cutscene
++// instead: a call inside the cutscene update runs once per rendered frame and
++// is silent everywhere else, and while it is ticking the vblank rate is held at
++// the native value. Pre-rendered cutscenes are unaffected.
++
++// Declared here rather than included from Utilities/ppu_patch.h, whose
++// ppu_form_branch_to_code default arguments clash with the overloads in this
++// translation unit. The layout must match that header.
++struct ppu_patch_block_registry_t
++{
++	ppu_patch_block_registry_t() = default;
++	ppu_patch_block_registry_t(const ppu_patch_block_registry_t&) = delete;
++	ppu_patch_block_registry_t& operator=(const ppu_patch_block_registry_t&) = delete;
++
++	std::unordered_set<u32> block_addresses{};
++};
++
++namespace aci_cutscene
++{
++	// The installer verifies the instruction at each address before
++	// touching it, and declines on any build whose bytes differ.
++	inline constexpr u32 hook_callsite   = 0x0029f554;
++	inline constexpr u32 orig_call_target = 0x002a4a9c;
++	inline constexpr u32 return_addr     = hook_callsite + 4;
++
++	// Time (us, get_system_time) of the last observed cutscene frame tick.
++	atomic_t<u64> g_last_tick_us{0};
++
++	// One tick fires per rendered frame, so this window spans a frame even at a
++	// low frame rate while still collapsing quickly once the cutscene ends.
++	inline constexpr u64 active_window_us = 250'000;
++
++	bool is_active()
++	{
++		const u64 last = g_last_tick_us.load();
++		if (last == 0)
++		{
++			return false;
++		}
++		const u64 now = get_system_time();
++		return (now - last) < active_window_us;
++	}
++
++	// Records the tick, then reproduces the call it replaced. The original callee
++	// is not itself hooked, so there is no recursion.
++	static void tick_thunk(ppu_thread& ppu, ppu_opcode_t, be_t<u32>*, ppu_intrp_func*)
++	{
++		// If this line never appears in the log the redirect was not honoured, which
++		// is otherwise indistinguishable from a cutscene that never played.
++		static atomic_t<bool> s_fired{false};
++		if (!s_fired.exchange(true))
++		{
++			ppu_log.success("[aci_cutscene] detector thunk fired (cutscene detection is live)");
++		}
++
++		g_last_tick_us.store(get_system_time());
++		ppu.lr = return_addr;
++		ppu.cia = orig_call_target;
++	}
++
++	static bool s_registered = []
++	{
++		REG_HIDDEN_FUNC_PURE(tick_thunk);
++		return true;
++	}();
++
++	// Call once the main module is in memory and before it is compiled.
++	void try_install()
++	{
++		if (Emu.GetTitleID() != "NPUB31347")
++		{
++			return;
++		}
++
++		if (!vm::check_addr(hook_callsite, vm::page_executable))
++		{
++			ppu_log.error("[aci_cutscene] hook call-site 0x%08x not executable; not installing", hook_callsite);
++			return;
++		}
++
++		// Refuse any build whose instruction here is not the call this expects.
++		const u32 op = vm::read32(hook_callsite);
++		// bl: primary opcode 18, LK=1, AA=0.
++		const bool is_bl = ((op >> 26) == 18) && (op & 1) && !((op >> 1) & 1);
++		s32 li = static_cast<s32>((op & 0x03fffffc) << 6) >> 6; // sign-extend 24-bit<<2
++		const u32 tgt = (hook_callsite + li) & -4;
++		if (!is_bl || tgt != orig_call_target)
++		{
++			ppu_log.error("[aci_cutscene] instruction at 0x%08x is not the expected 'bl 0x%08x' (op=0x%08x); not installing",
++				hook_callsite, orig_call_target, op);
++			return;
++		}
++
++		const u32 thunk_addr = g_fxo->get<ppu_function_manager>().func_addr(FIND_FUNC(tick_thunk), true);
++
++		// Register the hook point before forming the branch. PPUTranslator treats
++		// every address in the registry as its own entry point, which is what makes
++		// a mid-function redirect survive translation instead of being compiled
++		// straight through. Same mechanism as patch_type::code_alloc.
++		g_fxo->need<ppu_patch_block_registry_t>();
++		g_fxo->get<ppu_patch_block_registry_t>().block_addresses.insert(hook_callsite);
++
++		if (ppu_form_branch_to_code(hook_callsite, thunk_addr, /*link=*/false, /*with_toc=*/false))
++		{
++			ppu_log.success("[aci_cutscene] installed cutscene detector at 0x%08x -> thunk 0x%08x (native cadence will be forced during cutscenes)",
++				hook_callsite, thunk_addr);
++		}
++		else
++		{
++			ppu_log.error("[aci_cutscene] ppu_form_branch_to_code failed at 0x%08x", hook_callsite);
++		}
++	}
++}
++
++// External linkage without a shared header, which the build's git clean would
++// remove before the patches are applied.
++void aci_cutscene_try_install()
++{
++	aci_cutscene::try_install();
++}
++
++bool aci_cutscene_is_active()
++{
++	return aci_cutscene::is_active();
++}
++
++// 2. The flight model's per-frame speed update mixes timing styles: the thrust
++// term is scaled by the frame delta, but two threshold-gated correction terms
++// apply a fixed step per call, sized for the native cadence. Calling the update
++// more often per second therefore accumulates those two faster than the scaled
++// term, and acceleration to top speed takes roughly half as long at twice the
++// frame rate.
++//
++// Rather than touch any constant inside it, the whole update is wrapped and its
++// net per-call change rescaled by the frame-step ratio:
++//
++//     x_new = x_pre + (x_post - x_pre) * ratio
++//
++// At the native cadence the ratio is 1.0 and the wrapper is a bit-exact
++// pass-through. The entry thunk replaces the function's own stack-frame push and
++// so must reproduce it; the exit thunk replaces its single return.
++
++namespace aci_forcestep
++{
++	// Both callers enter through a guard
++	// prologue that falls through to entry_addr, and exit_addr is the function's
++	// only return, so wrapping the two covers every call. The installer verifies
++	// both instructions and declines on any other build.
++	inline constexpr u32 entry_addr = 0x0062e4c8;
++	inline constexpr u32 exit_addr  = 0x0062fd80;
++	inline constexpr u32 speed_cmd_offset = 0x978;
++
++	// The cadence the fixed-step terms were tuned for.
++	inline constexpr double native_hz = 30.0;
++	// The upper bound is the 10fps floor below which the game is unplayable
++	// anyway; the lower is a guard against a garbage frame-time sample.
++	inline constexpr double ratio_min = 0.02;
++	inline constexpr double ratio_max = 3.0;
++
++	// State handed from the entry thunk to the exit thunk of the same call.
++	// thread_local rather than atomic because the two always run back to back on
++	// one PPU thread, so the pairs cannot interleave.
++	thread_local u32 g_pending_obj = 0;
++	thread_local float g_pending_pre = 0.0f;
++	// The frame delta has to be read here, from the incoming argument. The
++	// function borrows the register it arrives in as scratch and its epilogue
++	// restores the caller's value, so by the exit thunk it is gone.
++	thread_local double g_pending_dt = 0.0;
++
++	static void entry_thunk(ppu_thread& ppu, ppu_opcode_t, be_t<u32>*, ppu_intrp_func*)
++	{
++		static atomic_t<bool> s_fired{false};
++		if (!s_fired.exchange(true))
++		{
++			ppu_log.success("[aci_forcestep] entry thunk fired (force-step fix is live)");
++		}
++
++		// Reproduce the stack-frame push this thunk replaces. Everything the
++		// function does afterwards depends on it.
++		const u64 old_r1 = ppu.gpr[1];
++		const u64 new_r1 = old_r1 - 944;
++		vm::write64(static_cast<u32>(new_r1), old_r1);
++		ppu.gpr[1] = new_r1;
++
++		// The object argument is still live here, before the prologue moves it.
++		const u32 obj = static_cast<u32>(ppu.gpr[3]);
++		g_pending_obj = obj;
++		g_pending_pre = 0.0f;
++		if (obj && vm::check_addr(obj + speed_cmd_offset))
++		{
++			g_pending_pre = static_cast<float>(vm::_ref<float>(obj + speed_cmd_offset));
++		}
++
++		// Read the frame delta here, not at exit; see g_pending_dt above.
++		g_pending_dt = static_cast<double>(ppu.fpr[1]);
++
++		ppu.cia = entry_addr + 4;
++	}
++
++	static void exit_thunk(ppu_thread& ppu, ppu_opcode_t, be_t<u32>*, ppu_intrp_func*)
++	{
++		static atomic_t<bool> s_fired{false};
++		if (!s_fired.exchange(true))
++		{
++			ppu_log.success("[aci_forcestep] exit thunk fired (force-step fix is live)");
++		}
++
++		const u32 obj = g_pending_obj;
++		if (obj && vm::check_addr(obj + speed_cmd_offset))
++		{
++			const double dt = g_pending_dt;
++			double ratio = native_hz * dt;
++			if (ratio > ratio_max) ratio = ratio_max;
++			else if (ratio < ratio_min) ratio = ratio_min;
++
++			const float pre = g_pending_pre;
++			const float post = static_cast<float>(vm::_ref<float>(obj + speed_cmd_offset));
++			if (post != pre)
++			{
++				const float blended = static_cast<float>(pre + (static_cast<double>(post) - pre) * ratio);
++				vm::write<f32>(obj + speed_cmd_offset, blended);
++			}
++		}
++		g_pending_obj = 0;
++
++		// Reproduce the return this thunk replaces.
++		ppu.cia = static_cast<u32>(ppu.lr);
++	}
++
++	static bool s_registered = []
++	{
++		REG_HIDDEN_FUNC_PURE(entry_thunk);
++		REG_HIDDEN_FUNC_PURE(exit_thunk);
++		return true;
++	}();
++
++	void try_install()
++	{
++		if (Emu.GetTitleID() != "NPUB31347")
++		{
++			return;
++		}
++
++		if (!vm::check_addr(entry_addr, vm::page_executable) || !vm::check_addr(exit_addr, vm::page_executable))
++		{
++			ppu_log.error("[aci_forcestep] hook address not executable; not installing");
++			return;
++		}
++
++		// Refuse any build whose instructions here are not the ones expected.
++		const u32 entry_op = vm::read32(entry_addr);
++		const u32 exit_op = vm::read32(exit_addr);
++		const bool entry_ok = (entry_op == 0xf821fc51); // the stack-frame push
++		const bool exit_ok = (exit_op == 0x4e800020);   // blr
++		if (!entry_ok || !exit_ok)
++		{
++			ppu_log.error("[aci_forcestep] unexpected instruction at entry (0x%08x) or exit (0x%08x); not installing",
++				entry_op, exit_op);
++			return;
++		}
++
++		const u32 entry_thunk_addr = g_fxo->get<ppu_function_manager>().func_addr(FIND_FUNC(entry_thunk), true);
++		const u32 exit_thunk_addr = g_fxo->get<ppu_function_manager>().func_addr(FIND_FUNC(exit_thunk), true);
++
++		// Register both hook points before forming the branches, for the reason
++		// given above the cutscene detector. The exit is not naturally a block
++		// start, so without this the translator compiles straight through it.
++		g_fxo->need<ppu_patch_block_registry_t>();
++		g_fxo->get<ppu_patch_block_registry_t>().block_addresses.insert(entry_addr);
++		g_fxo->get<ppu_patch_block_registry_t>().block_addresses.insert(exit_addr);
++
++		const bool ok_entry = ppu_form_branch_to_code(entry_addr, entry_thunk_addr, /*link=*/false, /*with_toc=*/false);
++		const bool ok_exit = ppu_form_branch_to_code(exit_addr, exit_thunk_addr, /*link=*/false, /*with_toc=*/false);
++
++		if (ok_entry && ok_exit)
++		{
++			ppu_log.success("[aci_forcestep] installed force-step fix: entry 0x%08x -> 0x%08x, exit 0x%08x -> 0x%08x",
++				entry_addr, entry_thunk_addr, exit_addr, exit_thunk_addr);
++		}
++		else
++		{
++			ppu_log.error("[aci_forcestep] ppu_form_branch_to_code failed (entry=%d exit=%d)", ok_entry, ok_exit);
++		}
++	}
++}
++
++void aci_forcestep_try_install()
++{
++	aci_forcestep::try_install();
++}
++
++// 3. The flight model's per-frame vertical sink subtracts a value recomputed
++// from the current state each call, and that subtraction is not scaled by the
++// frame delta. The value itself barely moves with frame rate, so its effect per
++// real second scales with how often the instruction runs, and an aircraft sinks
++// proportionally faster the higher the frame rate. Here the term is not part of
++// a persistent loop, so the single instruction is scaled by the same ratio in
++// place rather than the enclosing function being wrapped.
++
++namespace aci_drop_fix
++{
++	// The installer verifies the instruction before redirecting it.
++	inline constexpr u32 target_addr = 0x0062ecb4;
++
++	inline constexpr double native_hz = 30.0;
++	inline constexpr double ratio_min = 0.02;
++	inline constexpr double ratio_max = 3.0; // the same 10fps floor as above
++
++	static void thunk(ppu_thread& ppu, ppu_opcode_t, be_t<u32>*, ppu_intrp_func*)
++	{
++		static atomic_t<bool> s_fired{false};
++		if (!s_fired.exchange(true))
++		{
++			ppu_log.success("[aci_drop_fix] thunk fired (drop fix is live)");
++		}
++
++		const double dt = static_cast<double>(ppu.fpr[26]);
++		double ratio = native_hz * dt;
++		if (ratio > ratio_max) ratio = ratio_max;
++		else if (ratio < ratio_min) ratio = ratio_min;
++
++		const double vel_y_pre = static_cast<double>(ppu.fpr[0]);
++		const double drop_raw = static_cast<double>(ppu.fpr[31]);
++		const double vel_y_post = vel_y_pre - drop_raw * ratio;
++
++		// Reproduce the subtraction this thunk replaces, with the scaled value.
++		ppu.fpr[1] = f32(vel_y_post);
++
++		ppu.cia = target_addr + 4;
++	}
++
++	static bool s_registered = []
++	{
++		REG_HIDDEN_FUNC_PURE(thunk);
++		return true;
++	}();
++
++	void try_install()
++	{
++		if (Emu.GetTitleID() != "NPUB31347")
++		{
++			return;
++		}
++
++		if (!vm::check_addr(target_addr, vm::page_executable))
++		{
++			ppu_log.error("[aci_drop_fix] hook address not executable; not installing");
++			return;
++		}
++
++		// Confirm the instruction here is the one this expects before it is
++		// redirected, so a different game build or patch level cannot be
++		// patched blindly.
++		const u32 op = vm::read32(target_addr);
++		if (op != 0xec20f828)
++		{
++			ppu_log.error("[aci_drop_fix] unexpected instruction at 0x%08x (0x%08x); not installing", target_addr, op);
++			return;
++		}
++
++		const u32 thunk_addr = g_fxo->get<ppu_function_manager>().func_addr(FIND_FUNC(thunk), true);
++
++		g_fxo->need<ppu_patch_block_registry_t>();
++		g_fxo->get<ppu_patch_block_registry_t>().block_addresses.insert(target_addr);
++
++		const bool ok = ppu_form_branch_to_code(target_addr, thunk_addr, /*link=*/false, /*with_toc=*/false);
++
++		if (ok)
++		{
++			ppu_log.success("[aci_drop_fix] installed drop fix: 0x%08x -> 0x%08x", target_addr, thunk_addr);
++		}
++		else
++		{
++			ppu_log.error("[aci_drop_fix] ppu_form_branch_to_code failed");
++		}
++	}
++}
++
++void aci_drop_fix_try_install()
++{
++	aci_drop_fix::try_install();
++}
+diff --git a/rpcs3/Emu/Cell/lv2/sys_ppu_thread.cpp b/rpcs3/Emu/Cell/lv2/sys_ppu_thread.cpp
+index f26b65034..117d8f961 100644
+--- a/rpcs3/Emu/Cell/lv2/sys_ppu_thread.cpp
++++ b/rpcs3/Emu/Cell/lv2/sys_ppu_thread.cpp
+@@ -20,6 +20,27 @@
+ 
+ LOG_CHANNEL(sys_ppu_thread);
+ 
++// Ace Combat Infinity: hold the native cadence while a pre-rendered movie plays.
++// The movie middleware paces its own decoding, but the game draws the subtitles
++// on the ordinary per-frame tick, so above the native frame rate they run ahead
++// of the audio. The middleware's own tick sits behind object indirection, so
++// this watches the decode thread's lifetime instead, which needs no guest
++// address and does not move between game versions.
++
++namespace aci_fmv
++{
++	std::atomic<bool> g_active{false};
++
++	// The id of the thread that set the flag, so a later same-named thread
++	// cannot clear it on behalf of one still running.
++	std::atomic<u64> g_active_tid{0};
++}
++
++bool aci_fmv_is_active()
++{
++	return aci_fmv::g_active.load(std::memory_order_relaxed);
++}
++
+ // Simple structure to cleanup previous thread, because can't remove its own thread
+ struct ppu_thread_cleaner
+ {
+@@ -84,6 +105,12 @@ void _sys_ppu_thread_exit(ppu_thread& ppu, u64 errorcode)
+ 
+ 	sys_ppu_thread.trace("_sys_ppu_thread_exit(errorcode=0x%llx)", errorcode);
+ 
++	if (aci_fmv::g_active_tid == ppu.id)
++	{
++		aci_fmv::g_active = false;
++		sys_ppu_thread.success("[aci_fmv] FMV decode thread exited (id=0x%x); native cadence lock released", ppu.id);
++	}
++
+ 	ppu_join_status old_status;
+ 
+ 	// Avoid cases where cleaning causes the destructor to be called inside IDM lock scope (for performance)
+@@ -552,6 +579,13 @@ error_code _sys_ppu_thread_create(ppu_thread& ppu, vm::ptr<u64> thread_id, vm::p
+ 
+ 	sys_ppu_thread.warning("_sys_ppu_thread_create(): Thread \"%s\" created (id=0x%x, func=*0x%x, rtoc=0x%x, user-tls=0x%x)", ppu_name, tid, entry.addr, entry.rtoc, tls);
+ 
++	if (Emu.GetTitleID() == "NPUB31347" && ppu_name == "CriManaDecodeThread")
++	{
++		aci_fmv::g_active_tid = tid;
++		aci_fmv::g_active = true;
++		sys_ppu_thread.success("[aci_fmv] FMV decode thread detected (id=0x%x); native cadence forced", tid);
++	}
++
+ 	ppu.check_state();
+ 	*thread_id = tid;
+ 	return CELL_OK;
+diff --git a/rpcs3/Emu/RSX/RSXThread.cpp b/rpcs3/Emu/RSX/RSXThread.cpp
+index a2435dcff..9928bbe26 100644
+--- a/rpcs3/Emu/RSX/RSXThread.cpp
++++ b/rpcs3/Emu/RSX/RSXThread.cpp
+@@ -1028,7 +1028,23 @@ namespace rsx
+ #endif
+ 			u64 start_time = get_system_time();
+ 
+-			u64 vblank_rate = g_cfg.video.vblank_rate;
++			// Hold the native vblank rate while an Ace Combat Infinity cutscene or
++			// movie is playing, since both advance per rendered frame and would
++			// otherwise run fast. The user's configured value applies at all other
++			// times. See aci_cutscene in PPUThread.cpp and aci_fmv in
++			// lv2/sys_ppu_thread.cpp.
++			extern bool aci_cutscene_is_active();
++			extern bool aci_fmv_is_active();
++			auto effective_vblank_rate = []() -> u64
++			{
++				if (aci_cutscene_is_active() || aci_fmv_is_active())
++				{
++					return 60;
++				}
++				return g_cfg.video.vblank_rate;
++			};
++
++			u64 vblank_rate = effective_vblank_rate();
+ 			u64 vblank_period = 1'000'000 + u64{g_cfg.video.vblank_ntsc.get()} * 1000;
+ 
+ 			u64 local_vblank_count = 0;
+@@ -1039,6 +1055,19 @@ namespace rsx
+ 				// Get current time
+ 				const u64 current = get_system_time();
+ 
++				// Pick up a rate change here rather than only at a period boundary.
++				// The rate was previously refreshed inside the period-boundary branch
++				// alone, so a forced cadence could stay in effect indefinitely after
++				// the cutscene ended. Restarting the period on change keeps
++				// post_event_time from jumping.
++				if (const u64 desired_rate = effective_vblank_rate(); desired_rate != vblank_rate)
++				{
++					vblank_rate = desired_rate;
++					vblank_period = 1'000'000 + u64{g_cfg.video.vblank_ntsc.get()} * 1000;
++					start_time = current;
++					local_vblank_count = 0;
++				}
++
+ 				// Calculate the time at which we need to send a new VBLANK signal
+ 				const u64 post_event_time = start_time + (local_vblank_count + 1) * vblank_period / vblank_rate;
+ 
+@@ -1065,8 +1094,8 @@ namespace rsx
+ 							start_time += vblank_period;
+ 							local_vblank_count = 0;
+ 
+-							// We have a rare chance to update settings without losing precision whenever local_vblank_count is 0
+-							vblank_rate = g_cfg.video.vblank_rate;
++							// The rate is handled per iteration above; this is the NTSC
++							// tweak, which can still change at runtime.
+ 							vblank_period = 1'000'000 + u64{g_cfg.video.vblank_ntsc.get()} * 1000;
+ 						}
+ 

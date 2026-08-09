@@ -103,15 +103,33 @@ save can't be fixed through normal game flow. The local mirror is a workaround:
 every cloud-save write is dumped to disk, and the launcher's restore flow
 hands a known-good copy back through the one-shot file path above.
 
-## RPCS3: `tree-transparency.patch`
+## RPCS3: `invite-attachment-fix.patch`
 
-Modifies `rpcs3/Emu/RSX/RSXThread.cpp`.
+Modifies `rpcs3/Emu/Cell/Modules/sceNp.cpp`, `rpcs3/Emu/NP/np_handler.cpp`,
+`rpcs3/Emu/NP/np_handler.h`, `rpcs3/Emu/NP/np_cache.cpp`, `rpcs3/Emu/NP/np_cache.h`,
+`rpcs3/Emu/NP/np_helpers.h` and `rpcs3/Emu/NP/rpcn_client.cpp`.
 
-Moves the `RSX_SHADER_CONTROL_ALPHA_TEST` assignment out of the
-polygon-class branch of `prepare_fragment_program` so it also applies to
-non-polygon primitive classes. Intended to address opaque-black backgrounds
-on point-sprite foliage in this game. Not confirmed to be the right fix in
-general; included as a workaround pending a proper investigation upstream.
+Accepting an invite failed with "Failed to join room". The game takes the matching2
+server it should join from the top 16 bits of the room id carried inside the
+invitation, and it has no other source for it. RPCN allocates bare room ids, so that
+field arrived as zero, matched none of the servers the game had just validated, and the
+accept stopped before it ever looked up a world.
+
+The patch fills that field in on one value only: the room id inside an outgoing
+invitation, rewritten as the message is sent, using the server id of the room the
+sender is in. Room ids travelling to RPCN have it masked back off, so the server sees
+bare ids exactly as before and needs no change.
+
+Every other room id is left alone. That is deliberate rather than incidental: the game
+also puts room ids in its own peer-to-peer lobby traffic and compares them for exact
+equality, so a client that rewrote the ids it holds would stop being able to see
+players running an unpatched build. Leaving them bare keeps every id this client sends
+identical to an unmodified RPCS3's, which is what allows patched and unpatched players
+to share a lobby.
+
+**Both players need this build.** An invitation sent by an unpatched build carries no
+server id, and nothing on the receiving side can supply one for a room it has not
+joined. Accepting an invite on an unpatched build crashes the game and RPCS3.
 
 ## RPCS3: `np-localnetinfo-byteorder-fix.patch`
 
@@ -256,6 +274,52 @@ address, which records who would have released each wait. The flag is cleared wh
 resumes. With the flag clear the only cost in those syscalls is one relaxed atomic-flag
 read, so a healthy session is unaffected.
 
+## RPCS3: `fps-unlock.patch`
+
+Modifies `rpcs3/Emu/Cell/PPUModule.cpp`, `rpcs3/Emu/Cell/PPUThread.cpp`,
+`rpcs3/Emu/Cell/lv2/sys_ppu_thread.cpp` and `rpcs3/Emu/RSX/RSXThread.cpp`.
+
+The game was built for 30fps and several parts of it advance by a fixed step per
+rendered frame rather than by elapsed time, so raising the frame rate makes those
+parts run proportionally fast. This patch makes the frame-rate-coupled parts behave
+the same at any rate, which is what lets the launcher's FPS Mode raise it.
+
+Four fixes, each a no-op for any other title. Three are installed from
+`ppu_load_exec`; the movie fix needs no install and watches the `sys_ppu_thread`
+syscalls directly:
+
+- **Engine cutscenes.** Their timeline advances per rendered frame with no
+  delta-time scaling, so above the native rate they play fast, and the pre-match
+  cutscene ends early for the player running unlocked. The timeline clock is not
+  reachable from the PPU side, so a call inside the cutscene update, which runs once
+  per rendered frame and is silent everywhere else, is redirected through a thunk
+  that timestamps the tick. While those ticks are fresh the vblank rate is held at
+  the native value.
+- **Pre-rendered movies.** The middleware paces its own decoding, but the game draws
+  the subtitles on the ordinary per-frame tick, so above the native rate they run
+  ahead of the audio. The decode thread's lifetime is watched at the `sys_ppu_thread`
+  create and exit syscalls, which needs no guest address and does not move between
+  game versions, and the same native-rate hold applies while it lives.
+- **Thrust.** The flight model's per-frame speed update scales its thrust term by the
+  frame delta but applies two threshold-gated correction terms as a fixed step per
+  call. Calling the update more often therefore accumulates those two faster than the
+  scaled term, and acceleration to top speed takes about half as long at twice the
+  frame rate. The whole update is wrapped at its entry and its single exit, and its
+  net per-call change is rescaled by the frame-step ratio. At the native rate the
+  ratio is 1.0 and the wrapper is a bit-exact pass-through.
+- **Vertical sink.** The same shape without an accumulator: a per-frame correction to
+  vertical velocity that is not delta-scaled, so an aircraft sinks proportionally
+  faster the higher the frame rate. The single instruction is scaled in place.
+
+All four redirect guest instructions through `ppu_form_branch_to_code` and the
+faux-block registry, which the LLVM translator honours where `ppu_breakpoint` does
+not. Each installer verifies the instruction it is about to redirect, so a build whose
+bytes differ is declined rather than patched blindly. Contributed by VF0S-D.
+
+The vblank loop also gained a per-iteration rate check. It previously refreshed the
+rate only at a period boundary, so a forced native rate could persist indefinitely
+after the cutscene that asked for it had ended.
+
 ## rpcn: `tss-server.patch`
 
 Modifies `src/server.rs` and `servers.cfg`, and adds `src/server/tss_server.rs`.
@@ -334,6 +398,85 @@ room gracefully and continue to its progression save instead of crashing.
 Symptom: disconnected players crash on the reward screen and lose progression;
 with the patch they save normally. Contributed by VF0S-D (contributor-tested;
 exact game-side handling not reverse-engineered).
+
+## RPCS3: `matchrate-range-fix.patch`
+
+Modifies `rpcs3/Emu/NP/rpcn_client.cpp`.
+
+The game's Create Room screen offers a Matching Rate Range (Narrow, Standard,
+Wide, No Restrictions), which declares a skill-rating window on the room. The two
+ends of that window travel as searchable int attributes `0x4d`
+(`SCE_NP_MATCHING2_ROOM_SEARCHABLE_INT_ATTR_EXTERNAL_2_ID`) and `0x4e`
+(`..._EXTERNAL_3_ID`). A searching client sends its own rating back as `<=` and
+`>=` conditions on the same pair, and the matching server drops any room whose
+window excludes it. No Restrictions sends `[0, INT32_MAX]`; Standard, the default,
+sends a narrow band around the host's current rating. On a small player base that
+makes a host unfindable by most of the people searching, and nothing the searcher
+does can widen it.
+
+The patch overrides those two values where the outgoing request is built, so the
+room always advertises `[0, INT32_MAX]`. Both `createjoin_room` and
+`set_roomdata_external` need it: the game re-sends the attributes seconds after
+every room creation, and again after each match, so overriding room creation alone
+is undone almost immediately. The in-game setting is untouched, the host still
+sees and picks any of the four options, and only the values on the wire change.
+Gated to `NPUB31347`, because the two attribute slots are generic and other titles
+put unrelated values in them. Each override logs to the `rpcn` channel, so a user
+log shows whether it ran. Contributed by VF0S-D.
+
+## RPCS3: `additional-tree-transparency-fixes.patch`
+
+Modifies `rpcs3/Emu/RSX/VK/VKDraw.cpp` and `rpcs3/Emu/RSX/GL/GLDraw.cpp`.
+
+The game builds its distant-tree impostors as gather-assembled texture atlases
+(`deferred_request_command::mipmap_gather`). The source render-target surfaces are not
+reliably resident when those atlases are sampled, so the upper mip levels come back black
+and distant billboards turn into black squares. The patch clamps sampling to mip 0 for
+gather-assembled textures only, leaving CPU-uploaded textures such as buildings and
+terrain untouched. Both renderers. Replaces an earlier Vulkan-only version of the same
+fix rather than stacking on it. Contributed by VF0S-D.
+
+## RPCS3: `terrain-mesh-mismatch-experimental-fix.patch`
+
+Modifies `rpcs3/Emu/RSX/Program/GLSLCommon.cpp`.
+
+Adds a half-texel offset to the `VERTEX_TEXTURE_FETCH2D` codegen so the vertex heightmap
+fetch samples texel centres, correcting a terrain mesh misalignment. Marked experimental
+in the patch itself: it changes every vertex texture-fetch 2D user, not only this game,
+and it has not been validated against other titles. Contributed by VF0S-D.
+
+## RPCS3: `gl-pointsprite-coord-origin.patch`
+
+Modifies `rpcs3/Emu/RSX/GL/GLGSRender.cpp` and `rpcs3/Emu/RSX/GL/GLProcTable.h`.
+
+Sets `GL_POINT_SPRITE_COORD_ORIGIN` to `GL_LOWER_LEFT` in one-time GL state setup, and
+registers `glPointParameteri`, a GL 1.4 entry point that the Windows `opengl32` GL 1.1
+export set does not carry. The GL backend renders the scene Y-flipped to reconcile GL's
+bottom-left window origin with the RSX's top-left, but never set the point-sprite origin,
+so every sprite using `COORD_REPLACE` sampled its texture upside down and appeared to roll
+with the camera. OpenGL only; Vulkan has no scene flip and was already correct.
+Contributed by VF0S-D, tested on NVIDIA.
+
+## RPCS3: `pointsize-resolution-scale.patch`
+
+Modifies `rpcs3/Emu/RSX/GL/GLVertexProgram.cpp`, `rpcs3/Emu/RSX/GL/GLGSRender.cpp`,
+`rpcs3/Emu/RSX/VK/VKVertexProgram.cpp`, `rpcs3/Emu/RSX/VK/VKGSRender.cpp`,
+`rpcs3/Emu/RSX/VK/VKShaderInterpreter.cpp`, and the two shader sources
+`Program/GLSLSnippets/RSXProg/RSXDefines2.glsl` and
+`Program/GLSLInterpreter/VertexInterpreter.glsl`.
+
+Multiplies program-generated `gl_PointSize` by the resolution scale factor in all four
+codegen paths (GL and Vulkan, recompiler and interpreter). The fallback
+`NV4097_SET_POINT_SIZE` path is already pre-scaled when the buffer is filled and is left
+alone, so nothing scales twice. `point_size_scale` goes into the reserved slot at byte 84
+of `vertex_context_t`, so the 96-byte stride is unchanged. Without it, foliage sprites
+shrink at any resolution scale above 100% and, being centre-anchored, lift off the terrain
+and lose their trunks. Contributed by VF0S-D.
+
+This is the one patch in the series that keeps CRLF line endings, because the two `.glsl`
+files it edits are CRLF in the upstream blobs. `.gitattributes` carries a `-text` exception
+for it; without that the file normalises to LF and then fails on a fresh checkout while
+still applying in the working copy that produced it.
 
 ## Applying and resetting
 

@@ -20,6 +20,7 @@ _DEFAULTS = {
     "auto_check_updates": RELEASE_CHANNEL == "experimental",
     "update_channel": RELEASE_CHANNEL,
     "desktop_shortcut_offered": False,   # Linux only; installer covers Windows
+    "game_fps": 0,                       # 0 follows the monitor; else the rate to run at
 }
 
 

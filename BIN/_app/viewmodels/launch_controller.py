@@ -121,6 +121,7 @@ class LaunchController(QObject):
         self._settings["gameserver_remote_ip"] = self._win._play_tab.get_gameserver_remote_ip()
         self._settings["rpcs3_bind_address"]   = self._win._play_tab.get_rpcs3_bind_address()
         self._settings["rpcs3_upnp"]           = self._win._play_tab.get_rpcs3_upnp()
+        self._settings["game_fps"]             = self._win._play_tab.get_game_fps()
         save_settings(self._settings)
 
         rpcn_host = self._resolve_rpcn_host()
@@ -148,7 +149,8 @@ class LaunchController(QObject):
         lan_ip_override = self._win._play_tab.get_lan_ip_override()
         bind_address    = self._win._play_tab.get_rpcs3_bind_address()
         upnp            = self._win._play_tab.get_rpcs3_upnp()
-        self._worker = LaunchWorker(rpcn_host, rpcn_mode, lan_ip_override, bind_address, upnp, self)
+        game_fps        = self._win._play_tab.get_game_fps()
+        self._worker = LaunchWorker(rpcn_host, rpcn_mode, lan_ip_override, bind_address, upnp, game_fps, self)
         self._worker.log.connect(self._on_worker_log)
         self._worker.failed.connect(self._on_worker_failed)
         self._worker.done.connect(self._on_worker_done)

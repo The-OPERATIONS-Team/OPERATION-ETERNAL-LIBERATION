@@ -14,13 +14,14 @@ class LaunchWorker(QThread):
     done    = Signal(str)  # emits resolved LAN IP
 
     def __init__(self, rpcn_host: str, rpcn_mode: str, lan_ip_override: str = "",
-                 bind_address: str = "", upnp: bool = True, parent=None):
+                 bind_address: str = "", upnp: bool = True, game_fps: int = 30, parent=None):
         super().__init__(parent)
         self.rpcn_host = rpcn_host
         self.rpcn_mode = rpcn_mode
         self.lan_ip_override = lan_ip_override
         self.bind_address = bind_address
         self.upnp = upnp
+        self.game_fps = game_fps
 
     def run(self):
         try:
@@ -55,7 +56,7 @@ class LaunchWorker(QThread):
             if not ok:
                 self.failed.emit("RPCS3 did not generate a config within 30 seconds.")
                 return
-            cfg_mod.patch_game_config(str(CUSTOM_CFG), swap_ip, self.bind_address, self.upnp)
+            cfg_mod.patch_game_config(str(CUSTOM_CFG), swap_ip, self.bind_address, self.upnp, self.game_fps)
             self.log.emit("RPCS3 network config patched.")
 
             self.log.emit("Writing RPCN config...")

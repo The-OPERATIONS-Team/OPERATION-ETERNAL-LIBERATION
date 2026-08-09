@@ -143,6 +143,10 @@ A collaborative effort by **The -OPERATIONS- Team**:
 - JumpSuit
 - Volcano Water
 
+With patches and launcher work contributed by:
+
+- [VF0S-D](https://github.com/VF0S-D)
+
 ## Legal Disclaimer
 
 **OPERATION ETERNAL LIBERATION** is an independent, community-driven revival project and is **not** affiliated with, endorsed by, or otherwise connected to Bandai Namco Entertainment Inc. or any of the original rights holders of *Ace Combat Infinity*.

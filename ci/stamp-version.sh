@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stamp the build version into OEL.iss and BIN/_app/launcher.py.
+# Stamp the build version into OEL.iss and BIN/_app/app/paths.py.
 #
 # Logic:
 #   - On a tag push (GITHUB_REF=refs/tags/X.Y.Z[.W]), the tag IS the version.
@@ -24,10 +24,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ISS="$ROOT/OEL.iss"
-LAUNCHER="$ROOT/BIN/_app/launcher.py"
+LAUNCHER="$ROOT/BIN/_app/app/paths.py"
 
 # Base version. The #define line in OEL.iss is the single source of truth;
-# launcher.py just mirrors it. Bumping the release is still a one-line edit.
+# app/paths.py just mirrors it. Bumping the release is still a one-line edit.
 APP_VER="$(awk -F'"' '/^#define AppVersion/ {print $2; exit}' "$ISS")"
 if [ -z "$APP_VER" ]; then
     echo "ERROR: could not parse AppVersion from $ISS" >&2
@@ -70,6 +70,14 @@ fi
 sed -i.bak -E "s/^(#define AppVersion ).*/\\1\"${VERSION}\"/" "$ISS"
 sed -i.bak -E "s/^(VERSION[[:space:]]*)= \"[^\"]*\"/\1= \"${VERSION}\"/" "$LAUNCHER"
 rm -f "$ISS.bak" "$LAUNCHER.bak"
+
+# Fail loud if either stamp was a no-op, e.g. a refactor moved the VERSION line.
+for f in "$ISS" "$LAUNCHER"; do
+    if ! grep -qF "\"${VERSION}\"" "$f"; then
+        echo "ERROR: version stamp did not take effect in $f" >&2
+        exit 1
+    fi
+done
 
 echo "Stamped build version: $VERSION"
 

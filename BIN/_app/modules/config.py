@@ -91,7 +91,13 @@ def ensure_custom_config(
     return True
 
 
-def patch_game_config(cfg_path: str, lan_ip: str, bind_address: str = "", upnp: bool = True):
+# RPCS3 stores the frame limit as an enum, not a number, and silently falls back to
+# its default for anything it does not recognise. These are the numeric ones it takes.
+FRAME_LIMIT_PRESETS = (30, 50, 60, 120)
+
+
+def patch_game_config(cfg_path: str, lan_ip: str, bind_address: str = "", upnp: bool = True,
+                      game_fps: int = 30):
     """Patch the network keys in the per-game custom config in-place.
 
     Always sets Internet enabled, PSN status, and the IP swap list. Sets RPCS3's
@@ -99,6 +105,15 @@ def patch_game_config(cfg_path: str, lan_ip: str, bind_address: str = "", upnp: 
     upnp flag. Always writes RPCS3's Net "Bind address"; an empty bind_address
     is treated as "0.0.0.0" (all interfaces) so a previously-saved specific IP
     cannot linger in the config.
+
+    Vblank Rate is twice game_fps, because the game halves its own vsync-driven
+    timing: that is what decides how fast the game actually runs.
+
+    The frame limit caps how often RPCS3 presents, and it is an enum. A rate it
+    names is written through; any other goes through Auto, which resolves to the
+    vblank rate and so caps at twice the target. Second Frame Limit is a plain
+    number and takes effect whenever it is the lower of the two, so it carries the
+    exact cap and the presented rate matches what was chosen either way.
     """
     with open(cfg_path, "r", encoding="utf-8") as f:
         content = f.read()
@@ -110,7 +125,10 @@ def patch_game_config(cfg_path: str, lan_ip: str, bind_address: str = "", upnp: 
     content = re.sub(r"UPNP Enabled:.*",  f"UPNP Enabled: {'true' if upnp else 'false'}", content)
     content = re.sub(r"Bind address:.*",
                      f"Bind address: {bind_address or '0.0.0.0'}", content)
-    content = re.sub(r"Frame limit:.*", "Frame limit: 30", content)
+    limit = str(game_fps) if game_fps in FRAME_LIMIT_PRESETS else "Auto"
+    content = re.sub(r"Frame limit:.*", f"Frame limit: {limit}", content)
+    content = re.sub(r"Vblank Rate:.*", f"Vblank Rate: {game_fps * 2}", content)
+    content = re.sub(r"Second Frame Limit:.*", f"Second Frame Limit: {game_fps}", content)
 
     with open(cfg_path, "w", encoding="utf-8") as f:
         f.write(content)

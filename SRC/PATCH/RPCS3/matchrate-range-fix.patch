@@ -1,0 +1,65 @@
+diff --git a/rpcs3/Emu/NP/rpcn_client.cpp b/rpcs3/Emu/NP/rpcn_client.cpp
+index e26ad54..e4640e1 100644
+--- a/rpcs3/Emu/NP/rpcn_client.cpp
++++ b/rpcs3/Emu/NP/rpcn_client.cpp
+@@ -1679,11 +1679,28 @@ namespace rpcn
+ 
+ 		if (req->roomSearchableIntAttrExternalNum && req->roomSearchableIntAttrExternal)
+ 		{
++			// Ace Combat Infinity puts a skill rating window on the room in searchable
++			// attributes 0x4d (low) and 0x4e (high), taken from the host's Matching
++			// Rate Range setting. Anything narrower than "No Restrictions" hides the
++			// room from players rated outside it, which at this population is most of
++			// them. The in-game setting is left alone, only the wire values change.
++			const bool widen_matching_rate_range = Emu.GetTitleID() == "NPUB31347";
++
+ 			for (u32 i = 0; i < req->roomSearchableIntAttrExternalNum; i++)
+ 			{
++				const u16 attr_id = req->roomSearchableIntAttrExternal[i].id;
++				u32 num = req->roomSearchableIntAttrExternal[i].num;
++
++				if (widen_matching_rate_range && (attr_id == SCE_NP_MATCHING2_ROOM_SEARCHABLE_INT_ATTR_EXTERNAL_2_ID || attr_id == SCE_NP_MATCHING2_ROOM_SEARCHABLE_INT_ATTR_EXTERNAL_3_ID))
++				{
++					const u32 widened = attr_id == SCE_NP_MATCHING2_ROOM_SEARCHABLE_INT_ATTR_EXTERNAL_2_ID ? 0 : 0x7fffffff;
++					rpcn_log.notice("createjoin_room: matching rate attr 0x%x sent as %u instead of %u", attr_id, widened, num);
++					num = widened;
++				}
++
+ 				auto* attr = pb_req.add_roomsearchableintattrexternal();
+-				attr->mutable_id()->set_value(req->roomSearchableIntAttrExternal[i].id);
+-				attr->set_num(req->roomSearchableIntAttrExternal[i].num);
++				attr->mutable_id()->set_value(attr_id);
++				attr->set_num(num);
+ 			}
+ 		}
+ 
+@@ -1943,11 +1960,27 @@ namespace rpcn
+ 
+ 		if (req->roomSearchableIntAttrExternalNum && req->roomSearchableIntAttrExternal)
+ 		{
++			// The game re-sends these attributes moments after creating a room and
++			// again after each match, so the matching rate window has to be widened
++			// here too or the value sent at creation is overwritten. Mirrors
++			// createjoin_room.
++			const bool widen_matching_rate_range = Emu.GetTitleID() == "NPUB31347";
++
+ 			for (u32 i = 0; i < req->roomSearchableIntAttrExternalNum; i++)
+ 			{
++				const u16 attr_id = req->roomSearchableIntAttrExternal[i].id;
++				u32 num = req->roomSearchableIntAttrExternal[i].num;
++
++				if (widen_matching_rate_range && (attr_id == SCE_NP_MATCHING2_ROOM_SEARCHABLE_INT_ATTR_EXTERNAL_2_ID || attr_id == SCE_NP_MATCHING2_ROOM_SEARCHABLE_INT_ATTR_EXTERNAL_3_ID))
++				{
++					const u32 widened = attr_id == SCE_NP_MATCHING2_ROOM_SEARCHABLE_INT_ATTR_EXTERNAL_2_ID ? 0 : 0x7fffffff;
++					rpcn_log.notice("set_roomdata_external: matching rate attr 0x%x sent as %u instead of %u", attr_id, widened, num);
++					num = widened;
++				}
++
+ 				auto* attr = pb_req.add_roomsearchableintattrexternal();
+-				attr->mutable_id()->set_value(req->roomSearchableIntAttrExternal[i].id);
+-				attr->set_num(req->roomSearchableIntAttrExternal[i].num);
++				attr->mutable_id()->set_value(attr_id);
++				attr->set_num(num);
+ 			}
+ 		}
+ 

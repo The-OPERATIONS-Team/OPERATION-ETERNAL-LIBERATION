@@ -16,6 +16,10 @@ if [ ! -f "$PINNED_ENV" ]; then
 fi
 # shellcheck disable=SC1090
 source "$PINNED_ENV"
+# A CRLF checkout of the pin file glues a carriage return onto every value, which
+# then rides along on the clone URL. build-all-linux.sh strips it at the read.
+RPCS3_URL="${RPCS3_URL%$'\r'}";  RPCS3_COMMIT="${RPCS3_COMMIT%$'\r'}"
+RPCN_URL="${RPCN_URL%$'\r'}";    RPCN_COMMIT="${RPCN_COMMIT%$'\r'}"
 
 # Deploy destinations inside the repo. Preserve subdirs (portable/ for RPCS3,
 # tss_data/ for RPCN) which hold user/runtime state.

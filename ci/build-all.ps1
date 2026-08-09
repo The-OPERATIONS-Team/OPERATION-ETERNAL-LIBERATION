@@ -25,7 +25,7 @@ $RpcnCommit  = $Pinned['RPCN_COMMIT']
 # Prebuilt LLVM libs for the RPCS3 PPU/SPU recompilers.
 # Skipping the LLVM submodule source build saves ~30 min per cold build.
 # Must match SRC\GIT\rpcs3\.github\workflows\rpcs3.yml -> LLVM_VER.
-$LlvmVer = "19.1.7"
+$LlvmVer = "22.1.8"
 
 # Deploy destinations inside the repo. Preserve subdirs (portable\ for RPCS3,
 # tss_data\ for RPCN) which hold user/runtime state.

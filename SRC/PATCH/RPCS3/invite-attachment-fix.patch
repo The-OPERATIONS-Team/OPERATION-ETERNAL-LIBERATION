@@ -1,0 +1,254 @@
+diff --git a/rpcs3/Emu/Cell/Modules/sceNp.cpp b/rpcs3/Emu/Cell/Modules/sceNp.cpp
+index e82491eac..1acdcb1c9 100644
+--- a/rpcs3/Emu/Cell/Modules/sceNp.cpp
++++ b/rpcs3/Emu/Cell/Modules/sceNp.cpp
+@@ -1415,6 +1415,11 @@ error_code sceNpBasicSendMessageGui(ppu_thread& ppu, vm::cptr<SceNpBasicMessageD
+ 	if (msg->size)
+ 	{
+ 		msg_data.data.assign(msg->data.get_ptr(), msg->data.get_ptr() + msg->size);
++
++		if (msg->mainType == SCE_NP_BASIC_MESSAGE_MAIN_TYPE_INVITE)
++		{
++			nph.pack_invitation_room_id(msg_data.data);
++		}
+ 	}
+ 
+ 	sceNp.trace("Message Data:\n%s", fmt::buf_to_hexstring(msg->data.get_ptr(), msg->size));
+diff --git a/rpcs3/Emu/NP/np_cache.cpp b/rpcs3/Emu/NP/np_cache.cpp
+index 4d70cacaa..8fcf72b91 100644
+--- a/rpcs3/Emu/NP/np_cache.cpp
++++ b/rpcs3/Emu/NP/np_cache.cpp
+@@ -55,6 +55,7 @@ namespace np
+ 	void room_cache::update(const SceNpMatching2RoomDataInternal* sce_roomdata)
+ 	{
+ 		num_slots     = sce_roomdata->maxSlot;
++		server_id     = sce_roomdata->serverId;
+ 		mask_password = sce_roomdata->passwordSlotMask;
+ 
+ 		groups.clear();
+@@ -85,6 +86,17 @@ namespace np
+ 		rooms[sce_roomdata->roomId].update(sce_roomdata);
+ 	}
+ 
++	std::optional<SceNpMatching2ServerId> cache_manager::get_room_server_id(SceNpMatching2RoomId room_id) const
++	{
++		std::lock_guard lock(mutex);
++
++		const auto room = rooms.find(room_id);
++		if (room == rooms.end())
++			return std::nullopt;
++
++		return room->second.server_id;
++	}
++
+ 	bool cache_manager::add_member(SceNpMatching2RoomId room_id, const SceNpMatching2RoomMemberDataInternal* sce_roommemberdata)
+ 	{
+ 		std::lock_guard lock(mutex);
+diff --git a/rpcs3/Emu/NP/np_cache.h b/rpcs3/Emu/NP/np_cache.h
+index bd0bd8a73..c1bf9b6cf 100644
+--- a/rpcs3/Emu/NP/np_cache.h
++++ b/rpcs3/Emu/NP/np_cache.h
+@@ -52,6 +52,7 @@ namespace np
+ 		void update(const SceNpMatching2RoomDataInternal* sce_roomdata);
+ 
+ 		u32 num_slots                                    = 0;
++		SceNpMatching2ServerId server_id                 = 0;
+ 		SceNpMatching2RoomPasswordSlotMask mask_password = 0;
+ 		std::optional<SceNpMatching2SessionPassword> password;
+ 
+@@ -74,6 +75,10 @@ namespace np
+ 		void update_password(SceNpMatching2RoomId room_id, const std::optional<SceNpMatching2SessionPassword>& password);
+ 		void update_opt_param(SceNpMatching2RoomId room_id, const SceNpMatching2SignalingOptParam* sce_opt_param);
+ 
++		// The server a cached room lives on. The invitation is the one place its id has to
++		// carry it, and only the room's own members can supply it.
++		std::optional<SceNpMatching2ServerId> get_room_server_id(SceNpMatching2RoomId room_id) const;
++
+ 		std::pair<error_code, std::optional<SceNpMatching2RoomSlotInfo>> get_slots(SceNpMatching2RoomId room_id) const;
+ 		std::pair<error_code, std::vector<SceNpMatching2RoomMemberId>> get_memberids(u64 room_id, s32 sort_method) const;
+ 		std::pair<error_code, std::optional<SceNpMatching2SessionPassword>> get_password(SceNpMatching2RoomId room_id) const;
+diff --git a/rpcs3/Emu/NP/np_handler.cpp b/rpcs3/Emu/NP/np_handler.cpp
+index 6b4ada8e8..e12050b5b 100644
+--- a/rpcs3/Emu/NP/np_handler.cpp
++++ b/rpcs3/Emu/NP/np_handler.cpp
+@@ -1092,6 +1092,40 @@ namespace np
+ 		}
+ 	}
+ 
++	// An invitation carries the room id at a fixed offset, big endian, and the accepting
++	// game reads its target matching2 server out of that id's top 16 bits. RPCN hands out
++	// bare ids, so fill the field in here, on the one copy that crosses to another client.
++	// Only the invitation is rewritten: the ids the game itself holds stay bare, so its own
++	// peer-to-peer traffic still matches what an unpatched client sends.
++	void np_handler::pack_invitation_room_id(std::vector<u8>& data)
++	{
++		constexpr usz invitation_room_id_offset = 40;
++
++		if (data.size() < invitation_room_id_offset + sizeof(u64))
++			return;
++
++		u64 room_id = 0;
++		for (usz i = 0; i < sizeof(u64); i++)
++			room_id = (room_id << 8) | data[invitation_room_id_offset + i];
++
++		// Already carries a server, or is not a room id at all.
++		if (room_id != strip_room_server(room_id))
++			return;
++
++		const auto server_id = np_cache.get_room_server_id(room_id);
++		if (!server_id)
++		{
++			nph_log.warning("pack_invitation_room_id: room_id(%d) is not cached, invitation sent unchanged", room_id);
++			return;
++		}
++
++		const u64 packed = pack_room_server(room_id, *server_id);
++		for (usz i = 0; i < sizeof(u64); i++)
++			data[invitation_room_id_offset + i] = static_cast<u8>(packed >> (56 - 8 * i));
++
++		nph_log.notice("pack_invitation_room_id: room_id(%d) sent as %d for server %d", room_id, packed, *server_id);
++	}
++
+ 	void np_handler::send_message(const message_data& msg_data, const std::set<std::string>& npids)
+ 	{
+ 		rpcn_log.notice("Sending message to \"%s\":", fmt::merge(npids, "\",\""));
+diff --git a/rpcs3/Emu/NP/np_handler.h b/rpcs3/Emu/NP/np_handler.h
+index 940ad6eac..869141931 100644
+--- a/rpcs3/Emu/NP/np_handler.h
++++ b/rpcs3/Emu/NP/np_handler.h
+@@ -155,7 +155,8 @@ namespace np
+ 		std::optional<shared_ptr<std::pair<std::string, message_data>>> get_message_selected(SceNpBasicAttachmentDataId id);
+ 		void clear_message_selected(SceNpBasicAttachmentDataId id);
+ 		void send_message(const message_data& msg_data, const std::set<std::string>& npids);
+ 		bool select_invitation(u64 msg_id);
++		void pack_invitation_room_id(std::vector<u8>& data);
+ 
+ 		// Those should probably be under match2 ctx
+ 		vm::ptr<SceNpMatching2RoomEventCallback> room_event_cb{}; // Room events
+diff --git a/rpcs3/Emu/NP/np_helpers.h b/rpcs3/Emu/NP/np_helpers.h
+index d9e2a9d07..802890e85 100644
+--- a/rpcs3/Emu/NP/np_helpers.h
++++ b/rpcs3/Emu/NP/np_helpers.h
+@@ -23,4 +23,19 @@ namespace np
+ 
+ 	bool is_valid_npid(const SceNpId& npid);
+ 	bool is_same_npid(const SceNpId& npid_1, const SceNpId& npid_2);
++
++	// The game takes the matching2 serverId from the top 16 bits of a room id, but only
++	// on the invite-accept path and only from the id carried inside the invitation. RPCN
++	// uses bare ids, so that one copy gets the serverId packed in, and anything heading
++	// back toward RPCN gets it stripped off again. Every other room id stays bare, which
++	// is what keeps the ids the game puts on its own peer-to-peer wire identical to the
++	// ones an unpatched client puts there.
++	inline u64 pack_room_server(u64 room_id, u16 server_id)
++	{
++		return (room_id & 0x0000ffffffffffffull) | (static_cast<u64>(server_id) << 48);
++	}
++	inline u64 strip_room_server(u64 room_id)
++	{
++		return room_id & 0x0000ffffffffffffull;
++	}
+ }
+diff --git a/rpcs3/Emu/NP/rpcn_client.cpp b/rpcs3/Emu/NP/rpcn_client.cpp
+index da590278f..37351adcb 100644
+--- a/rpcs3/Emu/NP/rpcn_client.cpp
++++ b/rpcs3/Emu/NP/rpcn_client.cpp
+@@ -1803,7 +1803,7 @@ namespace rpcn
+ 	{
+ 		np2_structs::JoinRoomRequest pb_req;
+ 
+-		pb_req.set_roomid(req->roomId);
++		pb_req.set_roomid(np::strip_room_server(req->roomId));
+ 		pb_req.mutable_teamid()->set_value(req->teamId);
+ 
+ 		if (req->roomPassword)
+@@ -1835,7 +1835,7 @@ namespace rpcn
+ 	bool rpcn_client::leave_room(u32 req_id, const SceNpCommunicationId& communication_id, const SceNpMatching2LeaveRoomRequest* req)
+ 	{
+ 		np2_structs::LeaveRoomRequest pb_req;
+-		pb_req.set_roomid(req->roomId);
++		pb_req.set_roomid(np::strip_room_server(req->roomId));
+ 
+ 		auto* optdata = pb_req.mutable_optdata();
+ 		optdata->set_data(req->optData.data, 16);
+@@ -1903,7 +1903,7 @@ namespace rpcn
+ 
+ 		for (u32 i = 0; i < req->roomIdNum && req->roomId; i++)
+ 		{
+-			pb_req.add_roomids(req->roomId[i]);
++			pb_req.add_roomids(np::strip_room_server(req->roomId[i]));
+ 		}
+ 
+ 		for (u32 i = 0; i < req->attrIdNum && req->attrId; i++)
+@@ -1922,7 +1922,7 @@ namespace rpcn
+ 		std::vector<u8> data(COMMUNICATION_ID_SIZE + sizeof(u64));
+ 
+ 		rpcn_client::write_communication_id(communication_id, data);
+-		write_to_ptr<le_t<u64>>(data, COMMUNICATION_ID_SIZE, room_id);
++		write_to_ptr<le_t<u64>>(data, COMMUNICATION_ID_SIZE, np::strip_room_server(room_id));
+ 
+ 		return forge_send(CommandType::GetRoomMemberDataExternalList, req_id, data);
+ 	}
+@@ -1930,7 +1930,7 @@ namespace rpcn
+ 	bool rpcn_client::set_roomdata_external(u32 req_id, const SceNpCommunicationId& communication_id, const SceNpMatching2SetRoomDataExternalRequest* req)
+ 	{
+ 		np2_structs::SetRoomDataExternalRequest pb_req;
+-		pb_req.set_roomid(req->roomId);
++		pb_req.set_roomid(np::strip_room_server(req->roomId));
+ 
+ 		if (req->roomSearchableIntAttrExternalNum && req->roomSearchableIntAttrExternal)
+ 		{
+@@ -1987,7 +1987,7 @@ namespace rpcn
+ 	bool rpcn_client::get_roomdata_internal(u32 req_id, const SceNpCommunicationId& communication_id, const SceNpMatching2GetRoomDataInternalRequest* req)
+ 	{
+ 		np2_structs::GetRoomDataInternalRequest pb_req;
+-		pb_req.set_roomid(req->roomId);
++		pb_req.set_roomid(np::strip_room_server(req->roomId));
+ 
+ 		if (req->attrIdNum && req->attrId)
+ 		{
+@@ -2006,7 +2006,7 @@ namespace rpcn
+ 	bool rpcn_client::set_roomdata_internal(u32 req_id, const SceNpCommunicationId& communication_id, const SceNpMatching2SetRoomDataInternalRequest* req)
+ 	{
+ 		np2_structs::SetRoomDataInternalRequest pb_req;
+-		pb_req.set_roomid(req->roomId);
++		pb_req.set_roomid(np::strip_room_server(req->roomId));
+ 		pb_req.set_flagfilter(req->flagFilter);
+ 		pb_req.set_flagattr(req->flagAttr);
+ 
+@@ -2052,7 +2052,7 @@ namespace rpcn
+ 	bool rpcn_client::get_roommemberdata_internal(u32 req_id, const SceNpCommunicationId& communication_id, const SceNpMatching2GetRoomMemberDataInternalRequest* req)
+ 	{
+ 		np2_structs::GetRoomMemberDataInternalRequest pb_req;
+-		pb_req.set_roomid(req->roomId);
++		pb_req.set_roomid(np::strip_room_server(req->roomId));
+ 		pb_req.mutable_memberid()->set_value(req->memberId);
+ 
+ 		if (req->attrIdNum && req->attrId)
+@@ -2072,7 +2072,7 @@ namespace rpcn
+ 	bool rpcn_client::set_roommemberdata_internal(u32 req_id, const SceNpCommunicationId& communication_id, const SceNpMatching2SetRoomMemberDataInternalRequest* req)
+ 	{
+ 		np2_structs::SetRoomMemberDataInternalRequest pb_req;
+-		pb_req.set_roomid(req->roomId);
++		pb_req.set_roomid(np::strip_room_server(req->roomId));
+ 		pb_req.mutable_memberid()->set_value(req->memberId);
+ 		pb_req.mutable_teamid()->set_value(req->teamId);
+ 
+@@ -2118,7 +2118,7 @@ namespace rpcn
+ 		std::vector<u8> data(COMMUNICATION_ID_SIZE + sizeof(u64));
+ 
+ 		rpcn_client::write_communication_id(communication_id, data);
+-		write_to_ptr<le_t<u64>>(data, COMMUNICATION_ID_SIZE, room_id);
++		write_to_ptr<le_t<u64>>(data, COMMUNICATION_ID_SIZE, np::strip_room_server(room_id));
+ 
+ 		return forge_send(CommandType::PingRoomOwner, req_id, data);
+ 	}
+@@ -2126,7 +2126,7 @@ namespace rpcn
+ 	bool rpcn_client::send_room_message(u32 req_id, const SceNpCommunicationId& communication_id, const SceNpMatching2SendRoomMessageRequest* req)
+ 	{
+ 		np2_structs::SendRoomMessageRequest pb_req;
+-		pb_req.set_roomid(req->roomId);
++		pb_req.set_roomid(np::strip_room_server(req->roomId));
+ 		pb_req.mutable_casttype()->set_value(req->castType);
+ 		pb_req.mutable_option()->set_value(req->option);
+ 

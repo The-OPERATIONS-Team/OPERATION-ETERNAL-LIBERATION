@@ -1,0 +1,27 @@
+diff --git a/rpcs3/Emu/RSX/GL/GLGSRender.cpp b/rpcs3/Emu/RSX/GL/GLGSRender.cpp
+index d8d4129..bf24307 100644
+--- a/rpcs3/Emu/RSX/GL/GLGSRender.cpp
++++ b/rpcs3/Emu/RSX/GL/GLGSRender.cpp
+@@ -228,6 +228,12 @@ void GLGSRender::on_init_thread()
+ 	m_max_texbuffer_size = 0;
+ 
+ 	glEnable(GL_VERTEX_PROGRAM_POINT_SIZE);
++	// OEL experimental (GL-only): RSX/PS3 and our Vulkan backend use a top-left
++	// window origin; GL's default gl_PointCoord origin (UPPER_LEFT, in GL's
++	// bottom-left window space) is inverted relative to our Y-flipped scene.
++	// Force LOWER_LEFT so point-sprite texcoords match the flipped framebuffer.
++	// glPointParameteri is loaded via GLProcTable.h (not in the GL1.1 export set).
++	glPointParameteri(GL_POINT_SPRITE_COORD_ORIGIN, GL_LOWER_LEFT);
+ 	glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &m_uniform_buffer_offset_align);
+ 	glGetIntegerv(GL_TEXTURE_BUFFER_OFFSET_ALIGNMENT, &m_min_texbuffer_alignment);
+ 	glGetIntegerv(GL_MAX_TEXTURE_BUFFER_SIZE, &m_max_texbuffer_size);
+diff --git a/rpcs3/Emu/RSX/GL/GLProcTable.h b/rpcs3/Emu/RSX/GL/GLProcTable.h
+index f396100..9cef091 100644
+--- a/rpcs3/Emu/RSX/GL/GLProcTable.h
++++ b/rpcs3/Emu/RSX/GL/GLProcTable.h
+@@ -307,4 +307,5 @@ WGL_PROC(PFNWGLSWAPINTERVALEXTPROC, SwapIntervalEXT);
+ OPENGL_PROC(PFNGLBLENDCOLORPROC, BlendColor);
+ OPENGL_PROC(PFNGLBLENDEQUATIONPROC, BlendEquation);
+ OPENGL_PROC(PFNGLACTIVETEXTUREPROC, ActiveTexture);
++OPENGL_PROC(PFNGLPOINTPARAMETERIPROC, PointParameteri);
+ #endif

@@ -1,0 +1,117 @@
+diff --git a/rpcs3/Emu/RSX/GL/GLGSRender.cpp b/rpcs3/Emu/RSX/GL/GLGSRender.cpp
+index d8d4129..5da3182 100644
+--- a/rpcs3/Emu/RSX/GL/GLGSRender.cpp
++++ b/rpcs3/Emu/RSX/GL/GLGSRender.cpp
+@@ -965,6 +965,7 @@ void GLGSRender::load_program_env()
+ 		*(reinterpret_cast<f32*>(buf + 72)) = rsx::method_registers.point_size() * resolution_scaling_config.scale_factor();
+ 		*(reinterpret_cast<f32*>(buf + 76)) = rsx::method_registers.clip_min();
+ 		*(reinterpret_cast<f32*>(buf + 80)) = rsx::method_registers.clip_max();
++		*(reinterpret_cast<f32*>(buf + 84)) = resolution_scaling_config.scale_factor();
+ 
+ 		m_vertex_env_buffer->bind_range(GL_VERTEX_PARAMS_BIND_SLOT, mapping.second, 96);
+ 	}
+diff --git a/rpcs3/Emu/RSX/GL/GLVertexProgram.cpp b/rpcs3/Emu/RSX/GL/GLVertexProgram.cpp
+index d275a55..373e1c0 100644
+--- a/rpcs3/Emu/RSX/GL/GLVertexProgram.cpp
++++ b/rpcs3/Emu/RSX/GL/GLVertexProgram.cpp
+@@ -38,6 +38,7 @@ void GLVertexDecompilerThread::insertHeader(std::stringstream& OS)
+ 		"	float point_size;\n"
+ 		"	float z_near;\n"
+ 		"	float z_far;\n"
++		"	float point_size_scale;\n"
+ 		"};\n"
+ 		"#define get_user_clip_config() user_clip_configuration_bits\n"
+ 		"\n\n"
+@@ -251,6 +252,14 @@ void GLVertexDecompilerThread::insertMainEnd(std::stringstream& OS)
+ 		{
+ 			if (m_parr.HasParam(PF_PARAM_OUT, "vec4", i.src_reg))
+ 			{
++				if (i.check_mask_value == CELL_GCM_ATTRIB_OUTPUT_MASK_POINTSIZE)
++				{
++					// OEL: scale program-generated point size by resolution scale,
++					// mirroring the pre-scaled default path (gl_PointSize = point_size).
++					OS << "\tgl_PointSize = " << i.src_reg << i.src_reg_mask << " * point_size_scale;\n";
++					continue;
++				}
++
+ 				std::string condition = (!i.cond.empty()) ? "(" + i.cond + ") " : "";
+ 
+ 				if (condition.empty() || i.default_val.empty())
+diff --git a/rpcs3/Emu/RSX/Program/GLSLInterpreter/VertexInterpreter.glsl b/rpcs3/Emu/RSX/Program/GLSLInterpreter/VertexInterpreter.glsl
+index a8de503..87c2320 100644
+--- a/rpcs3/Emu/RSX/Program/GLSLInterpreter/VertexInterpreter.glsl
++++ b/rpcs3/Emu/RSX/Program/GLSLInterpreter/VertexInterpreter.glsl
+@@ -574,7 +574,7 @@ void main()
+ 
+ 	if (attribute_enabled(1 << 5))
+ 	{
+-		gl_PointSize = dest[6].x;
++		gl_PointSize = dest[6].x * point_size_scale;
+ 	}
+ 	else
+ 	{
+diff --git a/rpcs3/Emu/RSX/Program/GLSLSnippets/RSXProg/RSXDefines2.glsl b/rpcs3/Emu/RSX/Program/GLSLSnippets/RSXProg/RSXDefines2.glsl
+index 490b578..b52d6a1 100644
+--- a/rpcs3/Emu/RSX/Program/GLSLSnippets/RSXProg/RSXDefines2.glsl
++++ b/rpcs3/Emu/RSX/Program/GLSLSnippets/RSXProg/RSXDefines2.glsl
+@@ -19,7 +19,8 @@ struct vertex_context_t
+ 	float point_size;
+ 	float z_near;
+ 	float z_far;
+-	float reserved[3];
++	float point_size_scale;
++	float reserved[2];
+ };
+ 
+ struct draw_parameters_t
+diff --git a/rpcs3/Emu/RSX/VK/VKGSRender.cpp b/rpcs3/Emu/RSX/VK/VKGSRender.cpp
+index e8acd2e..33ffca4 100644
+--- a/rpcs3/Emu/RSX/VK/VKGSRender.cpp
++++ b/rpcs3/Emu/RSX/VK/VKGSRender.cpp
+@@ -1990,6 +1990,7 @@ void VKGSRender::load_program_env()
+ 		*(reinterpret_cast<f32*>(buf + 72)) = ctx->point_size() * resolution_scaling_config.scale_factor();
+ 		*(reinterpret_cast<f32*>(buf + 76)) = ctx->clip_min();
+ 		*(reinterpret_cast<f32*>(buf + 80)) = ctx->clip_max();
++		*(reinterpret_cast<f32*>(buf + 84)) = resolution_scaling_config.scale_factor();
+ 
+ 		m_vertex_env_ring_info.unmap();
+ 		m_vertex_env_dynamic_offset = mem;
+diff --git a/rpcs3/Emu/RSX/VK/VKShaderInterpreter.cpp b/rpcs3/Emu/RSX/VK/VKShaderInterpreter.cpp
+index 976f800..2cb553d 100644
+--- a/rpcs3/Emu/RSX/VK/VKShaderInterpreter.cpp
++++ b/rpcs3/Emu/RSX/VK/VKShaderInterpreter.cpp
+@@ -213,6 +213,7 @@ namespace vk
+ 		"#define scale_offset_mat get_vertex_context().scale_offset_mat\n"
+ 		"#define transform_branch_bits get_vertex_context().transform_branch_bits\n"
+ 		"#define point_size get_vertex_context().point_size\n"
++		"#define point_size_scale get_vertex_context().point_size_scale\n"
+ 		"#define z_near get_vertex_context().z_near\n"
+ 		"#define z_far get_vertex_context().z_far\n\n";
+ 
+diff --git a/rpcs3/Emu/RSX/VK/VKVertexProgram.cpp b/rpcs3/Emu/RSX/VK/VKVertexProgram.cpp
+index 7496679..90608fb 100644
+--- a/rpcs3/Emu/RSX/VK/VKVertexProgram.cpp
++++ b/rpcs3/Emu/RSX/VK/VKVertexProgram.cpp
+@@ -381,6 +381,7 @@ void VKVertexDecompilerThread::insertMainStart(std::stringstream& OS)
+ 		"#define scale_offset_mat get_vertex_context().scale_offset_mat\n"
+ 		"#define transform_branch_bits get_vertex_context().transform_branch_bits\n"
+ 		"#define point_size get_vertex_context().point_size\n"
++		"#define point_size_scale get_vertex_context().point_size_scale\n"
+ 		"#define z_near get_vertex_context().z_near\n"
+ 		"#define z_far get_vertex_context().z_far\n\n";
+ 
+@@ -441,6 +442,14 @@ void VKVertexDecompilerThread::insertMainEnd(std::stringstream& OS)
+ 		{
+ 			if (m_parr.HasParam(PF_PARAM_OUT, "vec4", i.src_reg))
+ 			{
++				if (i.check_mask_value == CELL_GCM_ATTRIB_OUTPUT_MASK_POINTSIZE)
++				{
++					// OEL: scale program-generated point size by resolution scale,
++					// mirroring the pre-scaled default path (gl_PointSize = point_size).
++					OS << "\tgl_PointSize = " << i.src_reg << i.src_reg_mask << " * point_size_scale;\n";
++					continue;
++				}
++
+ 				std::string condition = (!i.cond.empty()) ? "(" + i.cond + ") " : "";
+ 
+ 				if (condition.empty() || i.default_val.empty())

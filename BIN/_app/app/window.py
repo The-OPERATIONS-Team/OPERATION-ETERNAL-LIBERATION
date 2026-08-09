@@ -38,6 +38,10 @@ class ACILauncher(QMainWindow):
         # One-shot WireGuard relay bind check, once the window is shown.
         QTimer.singleShot(0, self._play_tab._check_relay_bind)
 
+        # Host-firewall preflight. Runs on a worker and only speaks up when
+        # inbound netplay is actually blocked, so it costs a silent run otherwise.
+        QTimer.singleShot(2000, self._play_tab._check_firewall)
+
         # Let the window paint before the first save-state checks.
         QTimer.singleShot(800, self._controller.check_save_alerts)
 

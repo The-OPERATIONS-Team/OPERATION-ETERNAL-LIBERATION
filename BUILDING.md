@@ -10,7 +10,11 @@ git clone <repo-url>
 
 Run `SRC\clone-git-repos.bat`, then apply the patches with `SRC\apply-patches.bat`. `SRC\reset-git-repos.bat` reverts both repos to baseline.
 
-**RPCS3** requires [Visual Studio 2022](https://visualstudio.microsoft.com/downloads/) with the C++ workload. Follow the upstream [BUILDING.md](https://github.com/RPCS3/rpcs3/blob/master/BUILDING.md), then copy everything from `SRC\GIT\rpcs3\bin\` into `BIN\_app\RPCS3\`.
+**RPCS3** requires [Visual Studio](https://visualstudio.microsoft.com/downloads/) with the C++ workload. Follow the upstream [BUILDING.md](https://github.com/RPCS3/rpcs3/blob/master/BUILDING.md), then copy everything from `SRC\GIT\rpcs3\bin\` into `BIN\_app\RPCS3\`.
+
+Which version depends on how LLVM is obtained. `ci\build-all.ps1` and `ci\build-rpcs3-only.ps1` download the prebuilt LLVM libs that upstream's CI publishes, which saves about half an hour per cold build but requires the toolset those libs were built with: `LLVM_VER` in `.github\workflows\build.yml` names the version, and the `runs-on` line names the toolset. At LLVM 22.1.8 that is Visual Studio 2026. An older toolset compiles everything and then fails at the final link with unresolved `__std_*` symbols reported against the LLVM libs, which points nowhere near the cause.
+
+Visual Studio 2022 still works if LLVM is built from source instead, as upstream's own instructions describe. The prebuilt libs are an optimisation, not a requirement.
 
 **RPCN** requires [Rust](https://rustup.rs) (MSVC ABI), [Strawberry Perl](https://strawberryperl.com), [NASM](https://www.nasm.us/), and [protoc](https://github.com/protocolbuffers/protobuf/releases) on `PATH`:
 

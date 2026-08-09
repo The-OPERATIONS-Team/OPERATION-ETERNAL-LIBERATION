@@ -5,15 +5,18 @@
 # Add, remove, reorder, or disable a patch by editing this one file.
 
 RPCS3/tss-support.patch                    # TSS/TUS serving, world-list padding, auto-backup
-RPCS3/tree-transparency.patch              # tree-list transparency
+RPCS3/invite-attachment-fix.patch          # pack the matching2 serverId into the invitation's room id so invites resolve the server
 RPCS3/np-localnetinfo-byteorder-fix.patch  # NP LocalNetInfo byte-order fix
 RPCS3/p2ps-disconnect-fix.patch            # consolidated P2PS disconnect overhaul
 RPCS3/np-freeze-tracer.patch               # freeze-tracer diagnostics
 RPCS3/lv2-cond-tracer.patch                # lv2 cond-tracer diagnostics
-RPCS3/framelimit-lock.patch                # frame-limit lock (anticheat)
+RPCS3/fps-unlock.patch                     # frame-rate independence: cutscenes, movies, thrust and sink
 RPCS3/rpcn-disconnect-fix.patch            # RPCN disconnect handling
+RPCS3/matchrate-range-fix.patch            # widen the room's advertised matching rate window
 RPCN/tss-server.patch                      # TSS HTTP server + game-specific entries
 
 # Additional rendering fixes (appended)
-RPCS3/additional-tree-transparency-fixes.patch    # additional tree transparency fixes
+RPCS3/additional-tree-transparency-fixes.patch    # foliage mip clamp, Vulkan and OpenGL
 RPCS3/terrain-mesh-mismatch-experimental-fix.patch  # terrain mesh mismatch experimental fix
+RPCS3/gl-pointsprite-coord-origin.patch           # point-sprite texcoord origin for the flipped GL framebuffer
+RPCS3/pointsize-resolution-scale.patch            # scale program-generated point size by resolution scale

@@ -30,7 +30,7 @@ $Rpcs3Commit = $Pinned['RPCS3_COMMIT']
 if (-not $Rpcs3Commit) { throw "RPCS3_COMMIT not found in $PinnedEnv" }
 
 # Must match build-all.ps1 / rpcs3's LLVM_VER.
-$LlvmVer  = "19.1.7"
+$LlvmVer  = "22.1.8"
 $Rpcs3Dir = "SRC\GIT\rpcs3"
 
 function Step($name) { Write-Host "`n=== $name ===" -ForegroundColor Cyan }

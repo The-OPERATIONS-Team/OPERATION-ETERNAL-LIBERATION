@@ -9,6 +9,10 @@ if [ ! -f "$SRC/pinned-commits.env" ]; then
 fi
 # shellcheck disable=SC1091
 source "$SRC/pinned-commits.env"
+# .gitattributes pins this file to LF, but a clone predating that, or an editor,
+# can still leave CRLF here, and the carriage return then rides along on the URL.
+RPCS3_URL="${RPCS3_URL%$'\r'}";  RPCS3_COMMIT="${RPCS3_COMMIT%$'\r'}"
+RPCN_URL="${RPCN_URL%$'\r'}";    RPCN_COMMIT="${RPCN_COMMIT%$'\r'}"
 
 echo "============================================================"
 echo " ACI-RPCS3 -- Clone source repos at patch baseline"

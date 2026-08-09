@@ -17,9 +17,17 @@
 *.qss         text eol=lf
 *.patch       text eol=lf
 
+# This patch edits .glsl files that are CRLF upstream, so its hunks must keep CRLF.
+# Normalized to LF it applies in the working copy and fails on a fresh checkout.
+SRC/PATCH/RPCS3/pointsize-resolution-scale.patch  -text
+
 # Patch manifest (no extension): keep LF so the .bat for/f tokenizer and the
 # bash-on-Windows applier never see a trailing CR.
 SRC/PATCH/series  text eol=lf
+
+# Pin file: `source`d by the shell scripts, so a CRLF checkout glues a carriage
+# return onto every value and the clone URL 404s. Windows reads LF here fine.
+SRC/pinned-commits.env  text eol=lf
 *.qrc         text eol=lf
 *.ui          text eol=lf
 *.h           text eol=lf

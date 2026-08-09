@@ -4,10 +4,12 @@ The polling, verification, and launch-gating logic lives in PlayViewModel.
 """
 import glob
 import os
+import re
 import shutil
 import uuid
 
 from PySide6.QtCore import Signal
+from PySide6.QtGui import QGuiApplication, QIntValidator
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QRadioButton, QLineEdit, QGroupBox, QComboBox,
@@ -19,6 +21,31 @@ from app.settings import save_settings, is_relay_addr, relay_bind_ip
 from modules import games, ip_detect
 from viewmodels.play_vm import PlayViewModel
 from views.game_verify_dialog import GameVerifyDialog
+
+# The frame-rate fixes scale by the measured frame delta and clamp internally at
+# 10fps, so the whole of this range is handled. The bounds only stop a typo from
+# writing a rate nothing can run at.
+FPS_MIN = 20
+FPS_MAX = 480
+# A detected rate below this is not believed: a remote or virtual display reports
+# whatever its session runs at, which can be well under the 30 the game was built
+# for. A typed rate is the player's own call and only has to clear FPS_MIN.
+FPS_AUTO_FLOOR = 50
+# Stored instead of a number when the rate should follow the monitor, so moving the
+# window to a different display picks the new rate up rather than keeping the old one.
+FPS_AUTO = 0
+
+
+def _parse_fps(text: str, fallback: int = 30) -> int:
+    """Read a rate out of the FPS box, which is editable and so holds free text.
+
+    The presets carry a label, "30 (Native)", so this takes the leading digits
+    rather than the whole string.
+    """
+    match = re.match(r"\s*(\d+)", text)
+    if not match:
+        return fallback
+    return min(max(int(match.group(1)), FPS_MIN), FPS_MAX)
 
 
 class PlayTab(QWidget):
@@ -35,6 +62,9 @@ class PlayTab(QWidget):
         self._settings = settings
         self._rpcn_running = False
         self._relay_bind_checked = False
+        self._firewall_checked = False
+        self._firewall_worker = None
+        self._firewall_repair_worker = None
         self._vm = PlayViewModel(self)
         self._vm.setup_status.connect(self._render_setup_status)
         self._vm.verify_started.connect(self._on_verify_started)
@@ -129,7 +159,43 @@ class PlayTab(QWidget):
         self._upnp_check = QCheckBox("Enable UPnP (automatic port forwarding)")
         self._upnp_check.setChecked(bool(self._settings.get("rpcs3_upnp", True)))
         self._upnp_check.toggled.connect(self._on_upnp_changed)
-        rpcs3_layout.addWidget(self._upnp_check)
+
+        upnp_fps_row = QHBoxLayout()
+        upnp_fps_row.addWidget(self._upnp_check)
+        upnp_fps_row.addStretch()
+        upnp_fps_row.addWidget(QLabel("FPS Mode:"))
+        self._game_fps_combo = QComboBox()
+        self._game_fps_combo.setEditable(True)
+        self._game_fps_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self._game_fps_combo.setValidator(QIntValidator(FPS_MIN, FPS_MAX, self))
+        self._game_fps_combo.addItem("Monitor Refresh Rate", FPS_AUTO)
+        self._game_fps_combo.addItem("30 (Native)", 30)
+        self._game_fps_combo.addItem("60", 60)
+        self._game_fps_combo.addItem("120", 120)
+        self._game_fps_combo.setToolTip(
+            "Sets RPCS3's frame limit and vblank rate together, which is what the "
+            "game needs to run above 30 without also running fast. Monitor Refresh "
+            "Rate follows the display the launcher is on. 30 (Native) is the rate "
+            f"the game was built for. You can also type any rate between {FPS_MIN} "
+            f"and {FPS_MAX}. Cutscenes and movies play at the native rate whichever "
+            "you choose."
+        )
+        try:
+            saved = int(self._settings.get("game_fps", FPS_AUTO))
+        except (TypeError, ValueError):
+            saved = FPS_AUTO
+        fidx = self._game_fps_combo.findData(saved)
+        if fidx >= 0:
+            self._game_fps_combo.setCurrentIndex(fidx)
+        else:
+            self._game_fps_combo.setEditText(str(_parse_fps(str(saved))))
+        self._game_fps_combo.currentIndexChanged.connect(self._on_game_fps_changed)
+        # A typed rate never changes the index, so the line edit has to be listened
+        # to as well. editingFinished rather than the per-keystroke signal, or every
+        # digit on the way to 144 gets written to disk as a rate of its own.
+        self._game_fps_combo.lineEdit().editingFinished.connect(self._on_game_fps_changed)
+        upnp_fps_row.addWidget(self._game_fps_combo)
+        rpcs3_layout.addLayout(upnp_fps_row)
         root.addWidget(rpcs3_grp)
 
         self._refresh_interfaces()
@@ -539,8 +605,58 @@ class PlayTab(QWidget):
                 "was reset to the RPCS3 default.",
             )
 
+    def _check_firewall(self):
+        """One-shot host-firewall preflight, off the GUI thread.
+
+        RPCS3 has to accept unsolicited inbound UDP to be joined. Dismissing the
+        Windows firewall popup writes an inbound Block rule for rpcs3, and a Block
+        overrides every Allow, so the player can join others and nobody can join
+        them. That reads as "my room is invisible" rather than as a firewall.
+        """
+        if self._firewall_checked:
+            return
+        self._firewall_checked = True
+
+        from workers.firewall_worker import FirewallCheckWorker
+        self._firewall_worker = FirewallCheckWorker(self)
+        self._firewall_worker.checked.connect(self._on_firewall_checked)
+        self._firewall_worker.start()
+
+    def _on_firewall_checked(self, status):
+        if not status.is_problem or not status.fixable:
+            return
+        if QMessageBox.question(
+                self, "Firewall check",
+                f"{status.summary}\n\n{status.detail}\n\nFix it now?",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+
+        from workers.firewall_worker import FirewallRepairWorker
+        self._firewall_repair_worker = FirewallRepairWorker(self)
+        self._firewall_repair_worker.repaired.connect(self._on_firewall_repaired)
+        self._firewall_repair_worker.start()
+
+    def _on_firewall_repaired(self, outcome: str, status):
+        if outcome == "cancelled":
+            return
+        if outcome == "granted" and not status.is_problem:
+            QMessageBox.information(self, "Firewall check", status.summary)
+            return
+        QMessageBox.warning(
+            self, "Firewall check",
+            "The firewall could not be changed automatically. "
+            "Allow inbound connections for RPCS3 by hand, or others will not be "
+            "able to join your games.",
+        )
+
     def _on_upnp_changed(self, checked: bool):
         self._settings["rpcs3_upnp"] = checked
+        save_settings(self._settings)
+
+    def _on_game_fps_changed(self):
+        # Store the choice, not the rate it resolves to, or picking the monitor
+        # would freeze today's refresh rate into the settings file.
+        self._settings["game_fps"] = self._selected_fps()
         save_settings(self._settings)
 
     def _on_telemetry_changed(self, checked: bool):
@@ -551,6 +667,35 @@ class PlayTab(QWidget):
 
     def get_rpcs3_upnp(self) -> bool:
         return self._upnp_check.isChecked()
+
+    def _selected_fps(self) -> int:
+        """The choice as stored: FPS_AUTO for the monitor, else a rate.
+
+        An editable combo keeps its index pointing at the last picked item while
+        the text is being typed over, so the two are compared to tell a preset
+        apart from a typed rate.
+        """
+        idx = self._game_fps_combo.currentIndex()
+        if idx >= 0 and self._game_fps_combo.itemText(idx) == self._game_fps_combo.currentText():
+            return self._game_fps_combo.itemData(idx)
+        return _parse_fps(self._game_fps_combo.currentText())
+
+    def _monitor_refresh(self) -> int:
+        """The refresh rate of the display this window is on, or the native rate.
+
+        A headless platform reports 0 and a remote one reports its session's rate,
+        so anything implausible falls back to native rather than being trusted.
+        """
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        rate = round(screen.refreshRate()) if screen else 0
+        if rate < FPS_AUTO_FLOOR:
+            return 30
+        return min(rate, FPS_MAX)
+
+    def get_game_fps(self) -> int:
+        """The rate to write into the config, with the monitor choice resolved."""
+        chosen = self._selected_fps()
+        return self._monitor_refresh() if chosen == FPS_AUTO else chosen
 
     def set_process_status(self, name: str, running: bool):
         if name == "rpcn":

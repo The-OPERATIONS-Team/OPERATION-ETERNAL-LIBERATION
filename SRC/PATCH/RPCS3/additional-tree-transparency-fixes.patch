@@ -1,8 +1,29 @@
+diff --git a/rpcs3/Emu/RSX/GL/GLDraw.cpp b/rpcs3/Emu/RSX/GL/GLDraw.cpp
+index cc16350..a661e11 100644
+--- a/rpcs3/Emu/RSX/GL/GLDraw.cpp
++++ b/rpcs3/Emu/RSX/GL/GLDraw.cpp
+@@ -402,6 +402,16 @@ void GLGSRender::load_texture_env()
+ 
+ 		m_fs_sampler_states[i].apply(tex, fs_sampler_state[i].get(), actual_mipcount > 1);
+ 
++		// [ACI-FOLIAGE-FIX] GL port of the VK mipmap_gather clamp. Gather-assembled atlases
++		// (ACI dynamic tree impostors) build upper mips from separate render-target surfaces
++		// that are not reliably resident at sample time -> black distant foliage. Force mip 0
++		// only. Clamping MIN/MAX LOD to 0 samples mip 0 with no cross-mip blend, matching VK.
++		if (sampler_state->external_subresource_desc.op == rsx::deferred_request_command::mipmap_gather)
++		{
++			m_fs_sampler_states[i].set_parameterf(GL_TEXTURE_MIN_LOD, 0.f);
++			m_fs_sampler_states[i].set_parameterf(GL_TEXTURE_MAX_LOD, 0.f);
++		}
++
+ 		const auto texture_format = sampler_state->format_ex.format();
+ 		// Depth format redirected to BGRA8 resample stage. Do not filter to avoid bits leaking.
+ 		// If accurate graphics are desired, force a bitcast to COLOR as a workaround.
 diff --git a/rpcs3/Emu/RSX/VK/VKDraw.cpp b/rpcs3/Emu/RSX/VK/VKDraw.cpp
-index 8a67892..350794f 100644
+index 132f832..8c90371 100644
 --- a/rpcs3/Emu/RSX/VK/VKDraw.cpp
 +++ b/rpcs3/Emu/RSX/VK/VKDraw.cpp
-@@ -489,6 +489,18 @@ void VKGSRender::load_texture_env()
+@@ -490,6 +490,18 @@ void VKGSRender::load_texture_env()
  				min_lod = std::min(min_lod, actual_mipmaps - 1.f);
  				max_lod = std::min(max_lod, actual_mipmaps - 1.f);
  

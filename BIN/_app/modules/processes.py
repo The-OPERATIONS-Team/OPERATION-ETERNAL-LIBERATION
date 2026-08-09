@@ -16,6 +16,8 @@ import sys
 
 from PySide6.QtCore import QObject, QProcess, QTimer, Signal
 
+from modules import elevation
+
 # Terminal emulators probed in order. All but gnome-terminal keep the spawned
 # command in our process group, so killpg in stop() reaches it. gnome-terminal
 # delegates to a server process; --wait keeps our handle alive for the child's
@@ -85,22 +87,9 @@ def needs_port_privilege(python_exe: str, host: str) -> bool:
         return False
 
 
-def _elevation_argv(command: list[str]) -> list[str] | None:
-    """Wrap command so it runs as root after the desktop password prompt.
-    pkexec where available; systemd-run otherwise (same polkit agent, but
-    Debian ships pkexec as a separate package KDE does not pull in)."""
-    pkexec = shutil.which("pkexec")
-    if pkexec:
-        return [pkexec] + command
-    systemd_run = shutil.which("systemd-run")
-    if systemd_run:
-        return [systemd_run, "--quiet", "--wait", "--collect"] + command
-    return None
-
-
 def can_elevate() -> bool:
     """Return True if a graphical privilege prompt is available."""
-    return _elevation_argv(["true"]) is not None
+    return elevation.available()
 
 
 def grant_port_capability(python_exe: str) -> str:
@@ -113,18 +102,7 @@ def grant_port_capability(python_exe: str) -> str:
                                "/sbin/setcap") if p and os.path.exists(p)), None)
     if not setcap:
         return "failed"
-    argv = _elevation_argv([setcap, "cap_net_bind_service=+ep", python_exe])
-    if not argv:
-        return "failed"
-    try:
-        res = subprocess.run(argv, timeout=120)
-    except (OSError, subprocess.TimeoutExpired):
-        return "failed"
-    if res.returncode == 0:
-        return "granted"
-    # pkexec reports a dismissed prompt as 126; systemd-run gives no
-    # distinct code, so a cancel there surfaces as "failed".
-    return "cancelled" if res.returncode == 126 else "failed"
+    return elevation.run([[setcap, "cap_net_bind_service=+ep", python_exe]])
 
 
 class ManagedProcess(QObject):

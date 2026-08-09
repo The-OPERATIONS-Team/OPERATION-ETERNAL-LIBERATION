@@ -1,4 +1,4 @@
-"""Save Editor sub-tab."""
+"""Saves sub-tab: the field editor, the quick actions, and the unlocks."""
 import glob
 import os
 import shutil
@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 
 from app.paths import PORTABLE_DIR, APP_DIR
 from app.settings import load_settings, save_settings
-from modules import games, save_editor
+from modules import games, save_editor, unlocks
 
 
 class SaveEditorTab(QWidget):
@@ -23,6 +23,8 @@ class SaveEditorTab(QWidget):
         (3, "00000000000000000003"),
         (4, "00000000000000000004"),
     )
+    # Unlocks act on slot 3 alone, so it is named rather than looked up.
+    _SLOT3_ID = _SLOT_IDS[1][1]
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -172,12 +174,152 @@ class SaveEditorTab(QWidget):
 
         self._advanced.hide()
         root.addWidget(self._advanced, 1)
+
+        self._build_unlocks(root)
         # Soaks up empty space when _advanced is hidden; the section's
         # stretch=1 takes the room back when expanded.
         root.addStretch(0)
 
         self._read_btn.clicked.connect(self._read_saves)
         self._write_btn.clicked.connect(self._write_saves)
+
+    def _build_unlocks(self, root):
+        """Unlocks, as a second collapsed section beside the field editor.
+
+        Shares this tab's save folder, guard and restore staging: both act on the
+        same slot 3 file.
+        """
+        self._unlocks_btn = QToolButton()
+        self._unlocks_btn.setText("Unlocks")
+        self._unlocks_btn.setCheckable(True)
+        self._unlocks_btn.setArrowType(Qt.ArrowType.RightArrow)
+        self._unlocks_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self._unlocks_btn.setAutoRaise(True)
+        self._unlocks_btn.toggled.connect(self._toggle_unlocks)
+        root.addWidget(self._unlocks_btn, 0, Qt.AlignmentFlag.AlignLeft)
+
+        self._unlocks = QWidget()
+        box = QVBoxLayout(self._unlocks)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(8)
+
+        intro = QLabel("Unlock content from past events, including limited-time events.")
+        intro.setWordWrap(True)
+        box.addWidget(intro)
+
+        for label, sets in (("Aircraft", unlocks.AIRCRAFT_SETS),
+                            ("Customization", unlocks.CUSTOMIZATION_SETS)):
+            head = QLabel(label)
+            font = head.font(); font.setBold(True); head.setFont(font)
+            box.addWidget(head)
+            if sets is unlocks.CUSTOMIZATION_SETS:
+                every = QPushButton("Unlock all customization")
+                every.clicked.connect(
+                    lambda _=False: self._apply_unlocks("all customization",
+                                                        unlocks.CUSTOMIZATION_SETS))
+                box.addWidget(every)
+            for unlock_set in sets:
+                button = QPushButton(unlock_set.label)
+                button.clicked.connect(
+                    lambda _=False, u=unlock_set: self._apply_unlocks(u.label, (u,)))
+                box.addWidget(button)
+
+        revert = QPushButton("Revert all unlocks")
+        revert.clicked.connect(self._revert_unlocks)
+        box.addWidget(revert)
+
+        self._unlocks.hide()
+        root.addWidget(self._unlocks)
+
+    def _toggle_unlocks(self, checked: bool):
+        self._unlocks.setVisible(checked)
+        self._unlocks_btn.setArrowType(
+            Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
+        )
+
+    def _apply_unlocks(self, label, sets):
+        if not self._save_dir:
+            QMessageBox.warning(self, "No save folder",
+                                "No save folder selected or detected.")
+            return
+        path = self._latest_slot_path(self._SLOT3_ID)
+        if not path:
+            QMessageBox.warning(self, "Save not found",
+                                "No slot 3 save was found. Launch the game once, then try again.")
+            return
+        try:
+            slot3 = save_editor.SaveSlot(3, path)
+            result = unlocks.preview(slot3, sets)
+        except Exception as e:
+            QMessageBox.critical(self, "Load failed", str(e))
+            return
+
+        if result.granted == 0:
+            QMessageBox.information(self, "Nothing to do",
+                                    "You already have everything in this set.")
+            return
+        if not self._game_guard():
+            return
+        confirm = QMessageBox.question(
+            self, "Confirm unlock",
+            f"Unlock {result.granted} item(s) ({label}), skipping "
+            f"{result.skipped} already owned.\n\nYour save file will be modified. "
+            "Continue?",
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel)
+        if confirm != QMessageBox.StandardButton.Ok:
+            return
+
+        try:
+            unlocks.ensure_snapshot(self._save_dir, path, label)
+            unlocks.apply(slot3, sets)
+            slot3.save()
+            self._stage_restore(slot3)
+        except Exception as e:
+            QMessageBox.critical(self, "Write failed", str(e))
+            return
+
+        self.restore_staged.emit()
+        QMessageBox.information(
+            self, "Done",
+            f"Unlocked {result.granted} item(s) ({label}); skipped "
+            f"{result.skipped} already owned.\n\nLaunch the game and save once "
+            "for the changes to take effect.")
+
+    def _revert_unlocks(self):
+        if not self._save_dir:
+            QMessageBox.warning(self, "No save folder",
+                                "No save folder selected or detected.")
+            return
+        if not unlocks.snapshot_exists(self._save_dir):
+            QMessageBox.information(
+                self, "Nothing to revert",
+                "No unlocks have been applied on this save yet, so there is no "
+                "pre-unlock snapshot to restore.")
+            return
+        marker = unlocks.read_marker(self._save_dir) or {}
+        when = marker.get("created", "the first unlock")
+        if not self._game_guard():
+            return
+        confirm = QMessageBox.warning(
+            self, "Revert all unlocks",
+            f"Revert ALL unlocks? The save will be restored to its state before "
+            f"the first unlock ({when}). Progress made after that will be lost.\n\n"
+            "This is reversible: you can return to a later save from the "
+            "Backup / Restore tab.\n\nContinue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel)
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        ok, message = unlocks.revert(self._save_dir)
+        if ok:
+            self.restore_staged.emit()
+            QMessageBox.information(
+                self, "Revert staged",
+                "The pre-unlock save has been staged. Launch the game once to "
+                "complete the revert.")
+        else:
+            QMessageBox.warning(self, "Revert failed", message)
 
     def _toggle_advanced(self, checked: bool):
         self._advanced.setVisible(checked)
@@ -240,12 +382,12 @@ class SaveEditorTab(QWidget):
         backups_dir = os.path.join(self._save_dir, "backups")
         errors = []
         for slot_num, slot20d in self._SLOT_IDS:
-            candidates = sorted(glob.glob(os.path.join(backups_dir, f"*_{slot20d}.tdt")))
-            if not candidates:
+            latest = self._latest_slot_path(slot20d)
+            if not latest:
                 errors.append(f"Slot {slot_num}: no backup found in {backups_dir}")
                 continue
             try:
-                slot = save_editor.SaveSlot(slot_num, candidates[-1])
+                slot = save_editor.SaveSlot(slot_num, latest)
                 values = slot.read_all()
                 for arg, val in values.items():
                     if arg in self._spins:
@@ -295,6 +437,37 @@ class SaveEditorTab(QWidget):
         # Only enabled below the floor; writing the floor to a higher rate would lower it.
         self._bump_coop_btn.setEnabled(val < save_editor.COOP_MATCH_RATE_FLOOR)
 
+    def _latest_slot_path(self, slot20d: str) -> str | None:
+        """The newest backup for a slot, ignoring the pre-unlock snapshot.
+
+        That snapshot is written into backups/ with a current timestamp, so it
+        sorts newest and would otherwise be picked as the live save: the editor
+        would read pre-unlock values and write them back over the unlocks, and a
+        second unlock would edit the snapshot and destroy the rollback point.
+        """
+        marker = unlocks.read_marker(self._save_dir) or {}
+        snap = os.path.abspath(marker["snapshot"]) if marker.get("snapshot") else ""
+        found = sorted(
+            p for p in glob.glob(os.path.join(self._save_dir, "backups", f"*_{slot20d}.tdt"))
+            if os.path.abspath(p) != snap)
+        return found[-1] if found else None
+
+    def _game_guard(self) -> bool:
+        """False if the game is running and the user declined to write anyway."""
+        if self._game_running_check is None or not self._game_running_check():
+            return True
+        reply = QMessageBox.warning(
+            self, "Game is running",
+            "OP ETERNAL is still running.\n\n"
+            "It's recommended to close the game before writing saves, "
+            "otherwise the game may overwrite your changes when it next "
+            "saves or exits.\n\n"
+            "Write anyway?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        return reply == QMessageBox.StandardButton.Yes
+
     def _stage_restore(self, slot_obj: save_editor.SaveSlot):
         slot20d = Path(slot_obj._path).stem.split("_")[-1]
         sentinel = os.path.join(self._save_dir, f"{slot20d}.tdt.restore")
@@ -314,19 +487,8 @@ class SaveEditorTab(QWidget):
         if not self._slot2 and not self._slot3 and not self._slot4:
             QMessageBox.warning(self, "Not loaded", "Read save files first.")
             return
-        if self._game_running_check is not None and self._game_running_check():
-            reply = QMessageBox.warning(
-                self, "Game is running",
-                "OP ETERNAL is still running.\n\n"
-                "It's recommended to close the game before writing saves, "
-                "otherwise the game may overwrite your changes when it next "
-                "saves or exits.\n\n"
-                "Write anyway?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Cancel,
-            )
-            if reply != QMessageBox.StandardButton.Yes:
-                return
+        if not self._game_guard():
+            return
         errors = []
         for slot_num, slot_obj in ((2, self._slot2), (3, self._slot3), (4, self._slot4)):
             if slot_obj is None:
