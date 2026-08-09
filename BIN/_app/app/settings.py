@@ -17,7 +17,7 @@ _DEFAULTS = {
     "network_interface": "",       # "" = auto (default route), else explicit IPv4
     "enable_telemetry": False,
     "telemetry_client_id": "",
-    "auto_check_updates": RELEASE_CHANNEL == "experimental",
+    "auto_check_updates": True,
     "update_channel": RELEASE_CHANNEL,
     "desktop_shortcut_offered": False,   # Linux only; installer covers Windows
     "game_fps": 0,                       # 0 follows the monitor; else the rate to run at
