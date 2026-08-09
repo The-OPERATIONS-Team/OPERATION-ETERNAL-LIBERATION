@@ -441,18 +441,6 @@ class PlayTab(QWidget):
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return
-        elif decision == PlayViewModel.LAUNCH_VERIFY_FAILED:
-            answer = QMessageBox.warning(
-                self, "Game files may be incomplete",
-                "Verification of at least one of your game files has failed. "
-                "You may encounter issues during gameplay. Make sure to have "
-                "installed your game and patches completely and in the correct "
-                "order.\n\nUse \"Verify game files\" for details. Launch anyway?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if answer != QMessageBox.StandardButton.Yes:
-                return
         elif decision == PlayViewModel.LAUNCH_VERIFY_ERROR:
             answer = QMessageBox.warning(
                 self, "Verification incomplete",
