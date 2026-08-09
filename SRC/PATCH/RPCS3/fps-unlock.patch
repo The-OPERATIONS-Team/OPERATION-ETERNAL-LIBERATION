@@ -1,8 +1,8 @@
 diff --git a/rpcs3/Emu/Cell/PPUModule.cpp b/rpcs3/Emu/Cell/PPUModule.cpp
-index 15ff9b1fa..f22148b81 100644
+index dc78ddc..1a63f44 100644
 --- a/rpcs3/Emu/Cell/PPUModule.cpp
 +++ b/rpcs3/Emu/Cell/PPUModule.cpp
-@@ -2381,6 +2381,21 @@ bool ppu_load_exec(const ppu_exec_object& elf, bool virtual_load, const std::str
+@@ -2393,6 +2393,21 @@ bool ppu_load_exec(const ppu_exec_object& elf, bool virtual_load, const std::str
  		}
  	}
  
@@ -25,10 +25,10 @@ index 15ff9b1fa..f22148b81 100644
  	g_ps3_process_info.ctrl_flags1 = 0;
  
 diff --git a/rpcs3/Emu/Cell/PPUThread.cpp b/rpcs3/Emu/Cell/PPUThread.cpp
-index 82564a124..5562c25ab 100644
+index 3037278..a997136 100644
 --- a/rpcs3/Emu/Cell/PPUThread.cpp
 +++ b/rpcs3/Emu/Cell/PPUThread.cpp
-@@ -5682,3 +5682,395 @@ static void ppu_initialize2(jit_compiler& jit, const ppu_module<lv2_obj>& module
+@@ -5749,3 +5749,395 @@ static void ppu_initialize2(jit_compiler& jit, const ppu_module<lv2_obj>& module
  	jit.add(std::move(_module), cache_path);
  #endif // LLVM_AVAILABLE
  }
@@ -425,7 +425,7 @@ index 82564a124..5562c25ab 100644
 +	aci_drop_fix::try_install();
 +}
 diff --git a/rpcs3/Emu/Cell/lv2/sys_ppu_thread.cpp b/rpcs3/Emu/Cell/lv2/sys_ppu_thread.cpp
-index f26b65034..117d8f961 100644
+index f26b650..117d8f9 100644
 --- a/rpcs3/Emu/Cell/lv2/sys_ppu_thread.cpp
 +++ b/rpcs3/Emu/Cell/lv2/sys_ppu_thread.cpp
 @@ -20,6 +20,27 @@
@@ -484,10 +484,21 @@ index f26b65034..117d8f961 100644
  	*thread_id = tid;
  	return CELL_OK;
 diff --git a/rpcs3/Emu/RSX/RSXThread.cpp b/rpcs3/Emu/RSX/RSXThread.cpp
-index a2435dcff..9928bbe26 100644
+index 3bb3fb4..c8cf27e 100644
 --- a/rpcs3/Emu/RSX/RSXThread.cpp
 +++ b/rpcs3/Emu/RSX/RSXThread.cpp
-@@ -1028,7 +1028,23 @@ namespace rsx
+@@ -48,6 +48,10 @@ extern CellGcmOffsetTable offsetTable;
+ extern thread_local std::string(*g_tls_log_prefix)();
+ extern atomic_t<u32> g_lv2_preempts_taken;
+ 
++// Defined in Emu/Cell/PPUThread.cpp and Emu/Cell/lv2/sys_ppu_thread.cpp.
++extern bool aci_cutscene_is_active();
++extern bool aci_fmv_is_active();
++
+ LOG_CHANNEL(perf_log, "PERF");
+ 
+ template <>
+@@ -1028,7 +1032,21 @@ namespace rsx
  #endif
  			u64 start_time = get_system_time();
  
@@ -497,11 +508,9 @@ index a2435dcff..9928bbe26 100644
 +			// otherwise run fast. The user's configured value applies at all other
 +			// times. See aci_cutscene in PPUThread.cpp and aci_fmv in
 +			// lv2/sys_ppu_thread.cpp.
-+			extern bool aci_cutscene_is_active();
-+			extern bool aci_fmv_is_active();
 +			auto effective_vblank_rate = []() -> u64
 +			{
-+				if (aci_cutscene_is_active() || aci_fmv_is_active())
++				if (::aci_cutscene_is_active() || ::aci_fmv_is_active())
 +				{
 +					return 60;
 +				}
@@ -512,7 +521,7 @@ index a2435dcff..9928bbe26 100644
  			u64 vblank_period = 1'000'000 + u64{g_cfg.video.vblank_ntsc.get()} * 1000;
  
  			u64 local_vblank_count = 0;
-@@ -1039,6 +1055,19 @@ namespace rsx
+@@ -1039,6 +1057,19 @@ namespace rsx
  				// Get current time
  				const u64 current = get_system_time();
  
@@ -532,7 +541,7 @@ index a2435dcff..9928bbe26 100644
  				// Calculate the time at which we need to send a new VBLANK signal
  				const u64 post_event_time = start_time + (local_vblank_count + 1) * vblank_period / vblank_rate;
  
-@@ -1065,8 +1094,8 @@ namespace rsx
+@@ -1065,8 +1096,8 @@ namespace rsx
  							start_time += vblank_period;
  							local_vblank_count = 0;
  
