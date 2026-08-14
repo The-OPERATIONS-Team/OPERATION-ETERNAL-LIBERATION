@@ -26,12 +26,24 @@ from modules import games
 PYTHON_EXE  = APP_DIR / "python" / "python.exe" if _IS_WIN else APP_DIR / "python" / "bin" / "python3"
 
 
+def _mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
 def _resolve_rpcs3_exe() -> Path:
+    """The emulator binary. The Linux bundle stages the AppImage as
+    rpcs3.AppImage; anything else is a build a previous tarball left behind."""
     if _IS_WIN:
         return RPCS3_DIR / "rpcs3.exe"
-    images = sorted(RPCS3_DIR.glob("*.AppImage"))
+    fixed = RPCS3_DIR / "rpcs3.AppImage"
+    if fixed.is_file():
+        return fixed
+    images = sorted(RPCS3_DIR.glob("*.AppImage"), key=_mtime)
     if images:
-        return images[0]
+        return images[-1]
     return RPCS3_DIR / "rpcs3"
 
 
@@ -69,6 +81,32 @@ GAME_MANIFEST      = APP_DIR / "data" / "game_manifest.json"
 def find_installed_game():
     """Resolve the installed title, checking the virtual HDD then games.yml."""
     return games.find_installed(GAME_BASE_DIR, GAMES_YML)
+
+
+def clean_stale_appimages() -> list:
+    """Move every AppImage but the one in use into RPCS3/_old/.
+
+    A Linux update is an extract over the existing folder, so the build the
+    previous tarball shipped survives beside the new one under its own name.
+    Returns what it moved; an install it cannot write to is not an error.
+    """
+    if _IS_WIN:
+        return []
+    old = RPCS3_DIR / "_old"
+    moved = []
+    for image in sorted(RPCS3_DIR.glob("*.AppImage")):
+        if image == RPCS3_EXE:
+            continue
+        dest = old / image.name
+        try:
+            old.mkdir(exist_ok=True)
+            if dest.exists():
+                continue
+            shutil.move(str(image), str(dest))
+        except (OSError, shutil.Error):
+            continue
+        moved.append(dest)
+    return moved
 
 
 def rpcs3_launch_args() -> list:

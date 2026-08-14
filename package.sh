@@ -65,9 +65,21 @@ echo
 # Built only when the patched RPCS3 AppImage has been staged into
 # BIN/_app/RPCS3 (done by CI; see .github/workflows/build.yml).
 echo "[3/3] Bundling Linux client..."
-APPIMAGE="$(find "$ROOT/BIN/_app/RPCS3" -maxdepth 1 -name '*.AppImage' -print -quit 2>/dev/null || true)"
+# More than one is ambiguous: upstream names the AppImage per build, so a second
+# file is a build nobody removed.
+APPIMAGE=""
+APPIMAGE_COUNT=0
+for f in "$ROOT/BIN/_app/RPCS3"/*.AppImage; do
+    [ -e "$f" ] || continue
+    APPIMAGE="$f"
+    APPIMAGE_COUNT=$((APPIMAGE_COUNT + 1))
+done
 CLIENT_TAR="$ROOT/OP-ETERNAL-$VERSION-linux-x86_64.tar.xz"
-if [ -z "$APPIMAGE" ]; then
+if [ "$APPIMAGE_COUNT" -gt 1 ]; then
+    echo "ERROR: $APPIMAGE_COUNT AppImages in BIN/_app/RPCS3; leave only the one to ship:" >&2
+    ls -1 "$ROOT/BIN/_app/RPCS3"/*.AppImage >&2
+    exit 1
+elif [ "$APPIMAGE_COUNT" -eq 0 ]; then
     echo "No AppImage in BIN/_app/RPCS3 - skipping the client bundle."
 else
     for req in "$ROOT/BIN/_app/rpcn/rpcn" "$ROOT/BIN/_app/python/bin/python3"; do
@@ -111,9 +123,10 @@ else
     # Bundled Python runtime (symlinks preserved by cp -a and tar)
     cp -a "$ROOT/BIN/_app/python"                               "$CBUNDLE/_app/python"
 
-    # RPCS3: the patched AppImage; portable/ enables RPCS3 portable mode and
-    # carries the staged GuiConfigs/Icons when present
-    cp "$APPIMAGE"                                              "$CBUNDLE/_app/RPCS3/"
+    # RPCS3: the patched AppImage, under a fixed name so an update extracted over
+    # an existing install replaces it instead of landing beside it. portable/
+    # enables RPCS3 portable mode and carries the staged GuiConfigs/Icons.
+    cp "$APPIMAGE"                                              "$CBUNDLE/_app/RPCS3/rpcs3.AppImage"
     for sub in GuiConfigs Icons; do
         if [ -d "$ROOT/BIN/_app/RPCS3/portable/$sub" ]; then
             cp -r "$ROOT/BIN/_app/RPCS3/portable/$sub"          "$CBUNDLE/_app/RPCS3/portable/$sub"
@@ -131,7 +144,7 @@ else
         "$CBUNDLE/Play OPERATION ETERNAL LIBERATION (Linux).sh" \
         "$CBUNDLE/_app/setup.sh" \
         "$CBUNDLE/_app/gameserver/gameserver.sh" \
-        "$CBUNDLE/_app/RPCS3/"*.AppImage \
+        "$CBUNDLE/_app/RPCS3/rpcs3.AppImage" \
         "$CBUNDLE/_app/rpcn/rpcn"
 
     rm -f "$CLIENT_TAR"
