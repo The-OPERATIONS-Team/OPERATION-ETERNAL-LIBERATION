@@ -4,9 +4,9 @@ A community kit for playing OPERATION ETERNAL LIBERATION online via [RPCS3](http
 
 ## Communities
 
-[![OPERATION ETERNAL LIBERATION Discord](https://discord.com/api/guilds/1508671948299698248/widget.png?style=banner2)](https://discord.com/invite/KF5HjeYR)
+[![OPERATION ETERNAL LIBERATION Discord](https://discord.com/api/guilds/1508671948299698248/widget.png?style=banner2)](https://discord.gg/6FZHSR64s9)
 
-[![Ace Combat Infinity Revival Project Discord](https://discord.com/api/guilds/1500375208144408628/widget.png?style=banner2)](https://discord.com/invite/CyvkaYTE)
+[![Ace Combat Infinity Revival Project Discord](https://discord.com/api/guilds/1500375208144408628/widget.png?style=banner2)](https://discord.gg/b34zmRe8J9)
 
 ## Playing
 
