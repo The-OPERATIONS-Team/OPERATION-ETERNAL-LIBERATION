@@ -109,6 +109,25 @@ def clean_stale_appimages() -> list:
     return moved
 
 
+def ensure_rpcs3_executable() -> str:
+    """Set the execute bit on the resolved RPCS3 binary when it is missing.
+
+    package.sh sets it on the AppImage it stages, but a DIY builder places one by
+    hand and a GitHub Actions artifact arrives inside a zip, which carries no mode
+    bits. Returns what to log, or "" when there was nothing to do.
+    """
+    if _IS_WIN or not RPCS3_EXE.is_file() or os.access(RPCS3_EXE, os.X_OK):
+        return ""
+    try:
+        mode = RPCS3_EXE.stat().st_mode
+        # Execute where read is already granted, so a file the builder kept
+        # private is not widened by a repair they did not ask for.
+        os.chmod(RPCS3_EXE, mode | ((mode & 0o444) >> 2))
+    except OSError as exc:
+        return f"{RPCS3_EXE.name} is not executable and the bit could not be set: {exc}"
+    return f"Made {RPCS3_EXE.name} executable."
+
+
 def rpcs3_launch_args() -> list:
     """Extra RPCS3 argv. AppImages need FUSE; without it, fall back to
     --appimage-extract-and-run (handled by the AppImage runtime itself)."""

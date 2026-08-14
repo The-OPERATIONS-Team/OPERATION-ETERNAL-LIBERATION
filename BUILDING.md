@@ -28,7 +28,7 @@ copy target\release\rpcn.exe ..\..\BIN\_app\rpcn\rpcn.exe
 
 Run `SRC/clone-git-repos.sh`, then apply the patches with `SRC/apply-patches.sh`. `SRC/reset-git-repos.sh` reverts both repos to baseline. See `SRC/README.md` for details.
 
-**RPCS3**: follow the upstream [BUILDING.md](https://github.com/RPCS3/rpcs3/blob/master/BUILDING.md). The release AppImage is built with rpcs3's own CI container; `.github/workflows/build.yml` has the exact invocation. Place the resulting AppImage (or a `rpcs3` binary) in `BIN/_app/RPCS3/`.
+**RPCS3**: follow the upstream [BUILDING.md](https://github.com/RPCS3/rpcs3/blob/master/BUILDING.md). The release AppImage is built with rpcs3's own CI container; `.github/workflows/build.yml` has the exact invocation. Place the resulting AppImage (or a `rpcs3` binary) in `BIN/_app/RPCS3/`, and `chmod +x` it: a CI artifact arrives as a zip, which does not carry the execute bit. The launcher sets it on the way to a launch, so this only matters if you run the emulator directly.
 
 **RPCN** requires [Rust](https://rustup.rs) and protoc:
 

@@ -4,6 +4,7 @@ from PySide6.QtCore import QThread, Signal
 from app.paths import (
     RPCN_TSS, TSS_SRC_DIR, RPCS3_TSS, RPCS3_DIR, RPCS3_CFG_DIR, PATCHES_DIR,
     RPCS3_EXE, CUSTOM_CFG, RPCN_YML, rpcs3_launch_args, clean_stale_appimages,
+    ensure_rpcs3_executable,
 )
 from modules import ip_detect, config as cfg_mod, tss as tss_mod
 
@@ -27,6 +28,10 @@ class LaunchWorker(QThread):
         try:
             for image in clean_stale_appimages():
                 self.log.emit(f"Moved a stale RPCS3 build to _old/: {image.name}")
+
+            note = ensure_rpcs3_executable()
+            if note:
+                self.log.emit(note)
 
             # IP swap always targets the LAN IP. The local listener handles the
             # remote-server case by forwarding traffic to the real game server.

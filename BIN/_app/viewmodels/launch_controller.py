@@ -240,27 +240,30 @@ class LaunchController(QObject):
                     and not self._grant_port_privilege(gs_python, swap_ip)):
                 self._win._play_tab.set_launch_enabled(True)
                 return
-            ok = self._gameserver.launch(
-                str(gs_python),
-                gs_args,
-                cwd=str(GAMESERVER_DIR),
-                new_console=True,
+            self._launch_or_warn(
+                self._gameserver, str(gs_python), gs_args,
+                "Gameserver", "Could not start the game server.",
+                cwd=str(GAMESERVER_DIR), new_console=True,
             )
-            if not ok:
-                QMessageBox.warning(self._win, "Gameserver", "Could not start the game server.")
 
         if rpcn_mode == "self_hosted" and not self._rpcn_proc.is_running():
-            QTimer.singleShot(2000, lambda: self._rpcn_proc.launch(
-                str(RPCN_EXE), [], cwd=str(RPCN_DIR), new_console=True,
-            ))
+            QTimer.singleShot(2000, self._start_rpcn)
 
+        # True when RPCS3 was already up: nothing was started, so nothing failed.
+        rpcs3_up = True
         if not self._rpcs3_proc.is_running():
             if not self._restore_staged:
                 tus_saves.cleanup_restore_sentinels(str(PORTABLE_DIR / "tus"))
             self._restore_staged = False
-            self._rpcs3_proc.launch(str(RPCS3_EXE), rpcs3_launch_args(), cwd=str(RPCS3_DIR))
+            rpcs3_up = self._launch_or_warn(
+                self._rpcs3_proc, str(RPCS3_EXE), rpcs3_launch_args(),
+                "RPCS3", "RPCS3 did not start. Check that the emulator is present, "
+                         "and on Linux that it is executable.",
+                cwd=str(RPCS3_DIR),
+            )
 
-        if (gs_mode == "operations"
+        if (rpcs3_up
+                and gs_mode == "operations"
                 and self._settings.get("enable_telemetry")
                 and self._telemetry is None):
             self._telemetry = TelemetryStreamer(
@@ -281,6 +284,30 @@ class LaunchController(QObject):
 
         self._win._play_tab.set_launch_enabled(True)
         self._win._tss_tab.refresh()
+
+    def _launch_or_warn(self, proc, program, args, title, message,
+                        cwd=None, new_console=False) -> bool:
+        """Start a process, and say so when it does not start.
+
+        ManagedProcess.launch reports a failure by returning False and nothing else:
+        it swallows the OSError, writes no log, and never connects errorOccurred.
+        """
+        if proc.launch(program, args, cwd=cwd, new_console=new_console):
+            return True
+        QMessageBox.warning(self._win, title, message)
+        return False
+
+    def _start_rpcn(self):
+        """The deferred RPCN start, as a method so its result has a caller.
+
+        A new_console launch reports the terminal starting, not the process inside
+        it, so the message says what is actually known.
+        """
+        self._launch_or_warn(
+            self._rpcn_proc, str(RPCN_EXE), [],
+            "RPCN", "The RPCN console did not open.",
+            cwd=str(RPCN_DIR), new_console=True,
+        )
 
     def _on_rpcs3_stopped(self, _exit_code: int):
         if self._telemetry is not None:
