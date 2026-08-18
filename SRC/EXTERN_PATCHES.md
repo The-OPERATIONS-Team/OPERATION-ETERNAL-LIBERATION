@@ -205,10 +205,10 @@ is cleaned up locally and the remaining players keep playing.
 
 What it changes:
 
-- A dead stream is reported to the game instead of hidden. A read on a closed
-  stream returns `ECONNRESET`, a read or `select` blocked at close time is woken,
-  and `poll` reports `POLLHUP`, so a game loop waiting on the dropped peer stops
-  waiting instead of spinning on a zero-length read.
+- A dead stream is reported to the game instead of hidden. A read on a
+  disconnected stream returns `ECONNRESET` rather than the zero-length read a
+  game loop spins on, and `poll` reports `POLLHUP`, so a title waiting on the
+  dropped peer stops waiting.
 - The signaling status getters (`sceNpMatching2SignalingGetConnectionInfo` and
   `sceNpSignalingGetConnectionInfo`) report a timed-out peer as gone rather than
   still connected, so a title that polls them observes the drop.

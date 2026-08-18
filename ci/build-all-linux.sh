@@ -70,7 +70,7 @@ mkdir -p "$CCACHE_DIR"
 ARTDIR_HOST="$ROOT/artifacts"
 mkdir -p "$ARTDIR_HOST"
 
-DOCKER_IMG="rpcs3/rpcs3-ci-jammy:1.13"
+DOCKER_IMG="rpcs3/rpcs3-ci-jammy:2.1"
 docker pull --quiet "$DOCKER_IMG"
 # BUILD_REPOSITORY_NAME / BUILD_SOURCEBRANCHNAME are intentionally omitted below:
 # leaving them unset keeps RPCS3_GIT_FULL_BRANCH at "local_build", which suppresses

@@ -109,7 +109,7 @@ jobs:
       # it from upstream's own .github/workflows/rpcs3.yml at that commit.
       - name: Build rpcs3 in upstream's CI container
         run: |
-          DOCKER_IMG="rpcs3/rpcs3-ci-jammy:2.0"
+          DOCKER_IMG="rpcs3/rpcs3-ci-jammy:2.1"
           docker pull --quiet "$DOCKER_IMG"
           mkdir -p "$BUILD_ARTIFACTSTAGINGDIRECTORY"
           docker run --rm \

@@ -6,12 +6,12 @@ Subject: [PATCH] Add TSS HTTP server and game-specific server entries
 ---
  servers.cfg              |   8 ++-
  src/server.rs            |   2 +
- src/server/tss_server.rs | 128 +++++++++++++++++++++++++++++++++++++++
+ src/server/tss_server.rs | 128 +++++++++++++++++++++++++++++++++++++++++++++++
  3 files changed, 137 insertions(+), 1 deletion(-)
  create mode 100644 src/server/tss_server.rs
 
 diff --git a/servers.cfg b/servers.cfg
-index 07b3428..369e7f1 100644
+index 07b3428..4e2b5ef 100644
 --- a/servers.cfg
 +++ b/servers.cfg
 @@ -189,4 +189,10 @@ NPWR00426_00|1|65537|
@@ -29,25 +29,25 @@ index 07b3428..369e7f1 100644
 +NPWR04428_00|5|65537|
 \ No newline at end of file
 diff --git a/src/server.rs b/src/server.rs
-index f68f042..3641f59 100644
+index a4aefe1..b38c8b2 100644
 --- a/src/server.rs
 +++ b/src/server.rs
 @@ -31,6 +31,7 @@ mod score_cache;
  use score_cache::ScoresCache;
- mod daily_cleaner;
+ mod cleaners;
  mod stat_server;
 +mod tss_server;
  mod udp_server;
  mod utils;
  use crate::Config;
-@@ -187,6 +188,7 @@ impl Server {
+@@ -188,6 +189,7 @@ impl Server {
  			install_signal_handlers(&term_watch);
  
  			self.start_udp_server(term_watch.clone()).await?;
 +			self.start_tss_server(term_watch.clone()).await?;
  			self.start_stat_server(term_watch.clone(), self.game_tracker.clone()).await?;
  			self.start_cleaner_task(term_watch.clone(), self.db_pool.clone(), self.client_infos.clone()).await;
- 
+ 			self.start_filecleaner_task(term_watch.clone(), filecleaner_recv).await;
 diff --git a/src/server/tss_server.rs b/src/server/tss_server.rs
 new file mode 100644
 index 0000000..7c1b276

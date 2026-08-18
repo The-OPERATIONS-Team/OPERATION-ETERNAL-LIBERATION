@@ -1,8 +1,8 @@
 diff --git a/rpcs3/Emu/Cell/Modules/sceNp.cpp b/rpcs3/Emu/Cell/Modules/sceNp.cpp
-index 03bc8c4c3..417d624d2 100644
+index 502059c29..77a1bba5f 100644
 --- a/rpcs3/Emu/Cell/Modules/sceNp.cpp
 +++ b/rpcs3/Emu/Cell/Modules/sceNp.cpp
-@@ -6908,6 +6908,12 @@ error_code sceNpSignalingGetConnectionInfo(u32 ctx_id, u32 conn_id, s32 code, vm
+@@ -6918,6 +6918,12 @@ error_code sceNpSignalingGetConnectionInfo(u32 ctx_id, u32 conn_id, s32 code, vm
  	if (!si)
  		return SCE_NP_SIGNALING_ERROR_CONN_NOT_FOUND;
  
@@ -36,7 +36,7 @@ index 1fbef4d74..05bb06d35 100644
  	{
  		case SCE_NP_SIGNALING_CONN_INFO_RTT:
 diff --git a/rpcs3/Emu/Cell/lv2/sys_net/lv2_socket_p2ps.cpp b/rpcs3/Emu/Cell/lv2/sys_net/lv2_socket_p2ps.cpp
-index cb5955745..55d282863 100644
+index 512f6dd62..6244840af 100644
 --- a/rpcs3/Emu/Cell/lv2/sys_net/lv2_socket_p2ps.cpp
 +++ b/rpcs3/Emu/Cell/lv2/sys_net/lv2_socket_p2ps.cpp
 @@ -4,6 +4,7 @@
@@ -82,11 +82,11 @@ index cb5955745..55d282863 100644
  				}
  				it = msgs.erase(it);
  				continue;
-@@ -100,7 +106,19 @@ public:
+@@ -100,7 +106,17 @@ public:
  			if (thread_ctrl::state() == thread_state::aborting)
  				return;
  
--			std::lock_guard lock(data_mutex);
+-			std::vector<s32> streams_to_close;
 +			// Teardown is collected here and run after data_mutex is released:
 +			// force_disconnect_by_addr and close_stream take the signaling/socket mutexes
 +			// that handle_connected holds before data_mutex, so tearing down under the lock
@@ -98,139 +98,142 @@ index cb5955745..55d282863 100644
 +				u16 port;
 +			};
 +			std::vector<dead_peer> dead_peers;
-+
-+			std::unique_lock lock(data_mutex);
  
- 			const auto now = steady_clock::now();
- 			// Check for messages that haven't been acked
-@@ -111,35 +129,45 @@ public:
- 					break;
- 
- 				// reply is late, increases rtt
--				auto& msg       = it->second;
--				rtt_info rtt    = rtts[msg.sock_id];
-+				auto& msg          = it->second;
-+				const s32 sock_id  = msg.sock_id;
-+				rtt_info rtt       = rtts[sock_id];
- 				// Only increases rtt once per loop(in case a big number of packets are sent at once)
--				if (!rtt_increased.count(msg.sock_id))
-+				if (!rtt_increased.count(sock_id))
- 				{
- 					rtt.num_retries += 1;
--					// Increases current rtt by 10%
--					rtt.rtt_time += (rtt.rtt_time / 10);
--					rtts[msg.sock_id] = rtt;
-+					// exponential backoff, capped at 8 s
-+					rtt.rtt_time = std::min(rtt.rtt_time * 2, std::chrono::milliseconds(8000));
-+					rtts[sock_id] = rtt;
- 
--					rtt_increased.emplace(msg.sock_id);
-+					rtt_increased.emplace(sock_id);
- 				}
- 
--				if (rtt.num_retries >= 10)
-+				if (rtt.num_retries >= 15)
- 				{
--					// Too many retries, need to notify the socket that the connection is dead
--					idm::check<lv2_socket>(msg.sock_id, [&](lv2_socket& sock)
-+					// Too many retries, the connection is dead; defer teardown (see dead_peers).
-+					sys_net.error("[P2PS] Too many retries on socket %d, closing the stream", sock_id);
-+					dead_peers.push_back({sock_id, msg.dst_addr.sin_addr.s_addr, std::bit_cast<u16, be_t<u16>>(msg.dst_addr.sin_port)});
-+					// Remove all messages for this socket while data_mutex is held. The sweep
-+					// also erases the element at it, so advance it alongside jt to keep the
-+					// outer loop iterator valid.
-+					for (auto jt = msgs.begin(); jt != msgs.end();)
-+					{
-+						if (jt->second.sock_id != sock_id)
- 						{
--							sys_net.error("[P2PS] Too many retries, closing the stream");
--							ensure(sock.get_type() == SYS_NET_SOCK_STREAM_P2P);
--							auto& sock_p2ps = reinterpret_cast<lv2_socket_p2ps&>(sock);
--							sock_p2ps.close_stream();
--						});
--					it = msgs.erase(it);
-+							++jt;
-+							continue;
-+						}
-+						if (jt == it)
-+							it = jt = msgs.erase(jt);
-+						else
-+							jt = msgs.erase(jt);
-+					}
- 					continue;
- 				}
- 
- 				// resend the message
--				const auto res = idm::check<lv2_socket>(msg.sock_id, [&](lv2_socket& sock) -> bool
-+				const auto res = idm::check<lv2_socket>(sock_id, [&](lv2_socket& sock) -> bool
- 					{
- 						ensure(sock.get_type() == SYS_NET_SOCK_STREAM_P2P);
- 						auto& sock_p2ps = reinterpret_cast<lv2_socket_p2ps&>(sock);
-@@ -153,8 +181,8 @@ public:
- 								continue;
- 							}
- 
-+							// Send failed; the stream is dead. close_stream is deferred (see dead_peers).
- 							sys_net.error("[P2PS] Resending the packet failed(%s), closing the stream", err);
--							sock_p2ps.close_stream();
- 							return false;
- 						}
- 						return true;
-@@ -162,7 +190,26 @@ public:
- 
- 				if (!res || !res.ret)
- 				{
--					it = msgs.erase(it);
-+					// Send failed: the stream is dead, defer teardown (see dead_peers). A missing
-+					// socket means a local close() raced us; only drop its messages, the peer is
-+					// not known dead.
-+					if (res)
-+						dead_peers.push_back({sock_id, msg.dst_addr.sin_addr.s_addr, std::bit_cast<u16, be_t<u16>>(msg.dst_addr.sin_port)});
-+					// Remove all messages for this socket while data_mutex is held. The sweep
-+					// also erases the element at it, so advance it alongside jt to keep the
-+					// outer loop iterator valid.
-+					for (auto jt = msgs.begin(); jt != msgs.end();)
-+					{
-+						if (jt->second.sock_id != sock_id)
-+						{
-+							++jt;
-+							continue;
-+						}
-+						if (jt == it)
-+							it = jt = msgs.erase(jt);
-+						else
-+							jt = msgs.erase(jt);
-+					}
- 					continue;
- 				}
- 
-@@ -188,6 +235,25 @@ public:
  			{
- 				timeout = atomic_wait_timeout::inf;
+ 				std::lock_guard lock(data_mutex);
+@@ -114,30 +130,45 @@ public:
+ 						break;
+ 
+ 					// reply is late, increases rtt
+-					auto& msg       = it->second;
+-					rtt_info rtt    = rtts[msg.sock_id];
++					auto& msg         = it->second;
++					const s32 sock_id = msg.sock_id;
++					rtt_info rtt      = rtts[sock_id];
+ 					// Only increases rtt once per loop(in case a big number of packets are sent at once)
+-					if (!rtt_increased.count(msg.sock_id))
++					if (!rtt_increased.count(sock_id))
+ 					{
+ 						rtt.num_retries += 1;
+-						// Increases current rtt by 10%
+-						rtt.rtt_time += (rtt.rtt_time / 10);
+-						rtts[msg.sock_id] = rtt;
++						// exponential backoff, capped at 8 s
++						rtt.rtt_time  = std::min(rtt.rtt_time * 2, std::chrono::milliseconds(8000));
++						rtts[sock_id] = rtt;
+ 
+-						rtt_increased.emplace(msg.sock_id);
++						rtt_increased.emplace(sock_id);
+ 					}
+ 
+-					if (rtt.num_retries >= 10)
++					if (rtt.num_retries >= 15)
+ 					{
+-						// Too many retries, need to notify the socket that the connection is dead
+-						sys_net.error("[P2PS] Too many retries, closing the stream");
+-						streams_to_close.push_back(msg.sock_id);
+-						it = msgs.erase(it);
++						// Too many retries, the connection is dead; defer teardown (see dead_peers).
++						sys_net.error("[P2PS] Too many retries on socket %d, closing the stream", sock_id);
++						dead_peers.push_back({sock_id, msg.dst_addr.sin_addr.s_addr, std::bit_cast<u16, be_t<u16>>(msg.dst_addr.sin_port)});
++						// Remove all messages for this socket while data_mutex is held. The sweep
++						// also erases the element at it, so advance it alongside jt to keep the
++						// outer loop iterator valid.
++						for (auto jt = msgs.begin(); jt != msgs.end();)
++						{
++							if (jt->second.sock_id != sock_id)
++							{
++								++jt;
++								continue;
++							}
++							if (jt == it)
++								it = jt = msgs.erase(jt);
++							else
++								jt = msgs.erase(jt);
++						}
+ 						continue;
+ 					}
+ 
+ 					// resend the message
+-					const auto res = idm::check<lv2_socket>(msg.sock_id, [&](lv2_socket& sock) -> bool
++					const auto res = idm::check<lv2_socket>(sock_id, [&](lv2_socket& sock) -> bool
+ 						{
+ 							ensure(sock.get_type() == SYS_NET_SOCK_STREAM_P2P);
+ 							auto& sock_p2ps = reinterpret_cast<lv2_socket_p2ps&>(sock);
+@@ -151,8 +182,8 @@ public:
+ 									continue;
+ 								}
+ 
++								// Send failed; the stream is dead. close_stream is deferred (see dead_peers).
+ 								sys_net.error("[P2PS] Resending the packet failed(%s), closing the stream", err);
+-								streams_to_close.push_back(msg.sock_id);
+ 								return false;
+ 							}
+ 							return true;
+@@ -160,7 +191,26 @@ public:
+ 
+ 					if (!res || !res.ret)
+ 					{
+-						it = msgs.erase(it);
++						// Send failed: the stream is dead, defer teardown (see dead_peers). A missing
++						// socket means a local close() raced us; only drop its messages, the peer is
++						// not known dead.
++						if (res)
++							dead_peers.push_back({sock_id, msg.dst_addr.sin_addr.s_addr, std::bit_cast<u16, be_t<u16>>(msg.dst_addr.sin_port)});
++						// Remove all messages for this socket while data_mutex is held. The sweep
++						// also erases the element at it, so advance it alongside jt to keep the
++						// outer loop iterator valid.
++						for (auto jt = msgs.begin(); jt != msgs.end();)
++						{
++							if (jt->second.sock_id != sock_id)
++							{
++								++jt;
++								continue;
++							}
++							if (jt == it)
++								it = jt = msgs.erase(jt);
++							else
++								jt = msgs.erase(jt);
++						}
+ 						continue;
+ 					}
+ 
+@@ -171,7 +221,7 @@ public:
+ 
+ 				if (!msgs.empty())
+ 				{
+-					const auto current_timepoint = steady_clock::now();
++					const auto current_timepoint  = steady_clock::now();
+ 					const auto expected_timepoint = msgs.begin()->first;
+ 					if (current_timepoint > expected_timepoint)
+ 					{
+@@ -188,13 +238,20 @@ public:
+ 				}
  			}
-+
-+			lock.unlock();
-+
+ 
+-			for (const s32 sock_id : streams_to_close)
 +			// data_mutex released. Post each dead peer's signaling disconnect to the signaling
 +			// thread (queue_force_disconnect just enqueues and wakes it) rather than reaching into
 +			// its data_mutex from this monitor thread, then close the local stream - a socket-layer
 +			// op that never touches signaling state.
 +			for (const auto& dp : dead_peers)
-+			{
+ 			{
+-				idm::check<lv2_socket>(sock_id, [](lv2_socket& sock)
 +				g_fxo->get<named_thread<signaling_handler>>().queue_force_disconnect(dp.addr, dp.port);
 +				idm::check<lv2_socket>(dp.sock_id, [](lv2_socket& sock)
-+					{
+ 					{
+-						ensure(sock.get_type() == SYS_NET_SOCK_STREAM_P2P);
+-						auto& sock_p2ps = reinterpret_cast<lv2_socket_p2ps&>(sock);
+-						sock_p2ps.close_stream();
 +						// The id can be freed and reused between collection and this point;
 +						// skip it unless it is still a P2PS stream.
 +						if (sock.get_type() != SYS_NET_SOCK_STREAM_P2P)
 +							return;
 +						reinterpret_cast<lv2_socket_p2ps&>(sock).close_stream();
-+					});
-+			}
+ 					});
+ 			}
  		}
- 	}
- 
-@@ -213,12 +279,14 @@ private:
+@@ -222,12 +279,14 @@ private:
  		u64 seq = 0;
  		steady_clock::time_point initial_sendtime{};
  	};
@@ -247,7 +250,7 @@ index cb5955745..55d282863 100644
  	};
  	std::unordered_map<s32, rtt_info> rtts; // (sock_id, rtt)
  };
-@@ -407,8 +475,10 @@ bool lv2_socket_p2ps::handle_connected(p2ps_encapsulated_tcp* tcp_header, u8* da
+@@ -436,7 +495,8 @@ bool lv2_socket_p2ps::handle_connected(p2ps_encapsulated_tcp* tcp_header, u8* da
  		case p2ps_tcp_flags::RST:
  		case p2ps_tcp_flags::FIN:
  		{
@@ -255,90 +258,47 @@ index cb5955745..55d282863 100644
 +			sys_net.error("[P2PS] Received %s on socket %d, closing the stream",
 +				(tcp_header->flags & p2ps_tcp_flags::RST) ? "RST" : "FIN", lv2_id);
  			close_stream_nl(p2p_port);
-+			g_fxo->get<named_thread<tcp_timeout_monitor>>().clear_all_messages(lv2_id);
  			return false;
  		}
- 		default:
-@@ -543,6 +613,8 @@ void lv2_socket_p2ps::close_stream_nl(nt_p2p_port* p2p_port)
+@@ -555,6 +615,8 @@ void lv2_socket_p2ps::close_stream_nl(nt_p2p_port* p2p_port)
  {
- 	status = p2ps_stream_status::stream_closed;
+ 	status = p2ps_stream_status::stream_disconnected;
  
 +	sys_net.notice("[P2PS] stream %d closed, %zu blocked recvfrom(s)", lv2_id, queue.size());
 +
  	for (auto it = p2p_port->bound_p2p_streams.begin(); it != p2p_port->bound_p2p_streams.end();)
  	{
  		if (it->second == lv2_id)
-@@ -553,8 +625,25 @@ void lv2_socket_p2ps::close_stream_nl(nt_p2p_port* p2p_port)
- 		it++;
- 	}
- 
--	auto& tcpm = g_fxo->get<named_thread<tcp_timeout_monitor>>();
--	tcpm.clear_all_messages(lv2_id);
-+	if (!queue.empty())
-+	{
-+		bs_t<lv2_socket::poll_t> read_event = lv2_socket::poll_t::read;
-+		events.test_and_reset(lv2_socket::poll_t::read);
-+		for (auto it = queue.begin(); it != queue.end();)
-+		{
-+			if (it->second(read_event))
-+			{
-+				it = queue.erase(it);
-+				continue;
-+			}
-+			it++;
-+		}
-+		if (queue.empty())
-+		{
-+			events.store({});
-+		}
-+	}
-+
- }
- 
- void lv2_socket_p2ps::close_stream()
-@@ -829,7 +918,7 @@ std::optional<std::tuple<s32, std::vector<u8>, sys_net_sockaddr>> lv2_socket_p2p
- 		if (status == p2ps_stream_status::stream_closed)
+@@ -860,8 +922,10 @@ std::optional<std::tuple<s32, std::vector<u8>, sys_net_sockaddr>> lv2_socket_p2p
+ 	{
+ 		if (status == p2ps_stream_status::stream_disconnected)
  		{
- 			sys_net.error("[P2PS] Called recvfrom on closed socket!");
+-			sys_net.trace("[P2PS] Called recvfrom on a disconnected socket");
 -			return {{0, {}, {}}};
++			// A graceful EOF here is spun on rather than acted upon, so a dead peer is
++			// reported as a reset.
++			sys_net.error("[P2PS] Called recvfrom on a disconnected socket!");
 +			return {{-SYS_NET_ECONNRESET, {}, {}}};
  		}
  
- 		if (so_nbio || (flags & SYS_NET_MSG_DONTWAIT))
-@@ -1003,6 +1092,14 @@ void lv2_socket_p2ps::poll(sys_net_pollfd& sn_pfd, [[maybe_unused]] pollfd& nati
- 			sn_pfd.revents |= SYS_NET_POLLOUT;
- 		}
+ 		if (status == p2ps_stream_status::stream_closed)
+@@ -1095,6 +1159,11 @@ void lv2_socket_p2ps::poll(sys_net_pollfd& sn_pfd, [[maybe_unused]] pollfd& nati
+ 	{
+ 		sn_pfd.revents |= SYS_NET_POLLOUT;
  	}
-+	else if (status == p2ps_stream_status::stream_closed)
++
++	if (status == p2ps_stream_status::stream_disconnected)
 +	{
 +		sn_pfd.revents |= SYS_NET_POLLHUP;
-+		if ((sn_pfd.events & SYS_NET_POLLIN) && data_available)
-+		{
-+			sn_pfd.revents |= SYS_NET_POLLIN;
-+		}
 +	}
  }
  
  std::tuple<bool, bool, bool> lv2_socket_p2ps::select(bs_t<lv2_socket::poll_t> selected, [[maybe_unused]] pollfd& native_pfd)
-@@ -1035,6 +1132,13 @@ std::tuple<bool, bool, bool> lv2_socket_p2ps::select(bs_t<lv2_socket::poll_t> se
- 			read_set = true;
- 		}
- 	}
-+	else if (status == p2ps_stream_status::stream_closed)
-+	{
-+		// Wake a select() blocked on a closed stream so the guest's read returns (and the
-+		// subsequent recvfrom reports ECONNRESET) instead of hanging on the dead peer.
-+		if (selected & lv2_socket::poll_t::read)
-+			read_set = true;
-+	}
- 
- 	return {read_set, write_set, false};
- }
 diff --git a/rpcs3/Emu/NP/np_cache.cpp b/rpcs3/Emu/NP/np_cache.cpp
-index 4d70cacaa..c072cd797 100644
+index 8fcf72b91..8835d5c07 100644
 --- a/rpcs3/Emu/NP/np_cache.cpp
 +++ b/rpcs3/Emu/NP/np_cache.cpp
-@@ -109,7 +109,18 @@ namespace np
+@@ -121,7 +121,18 @@ namespace np
  			return false;
  		}
  
