@@ -2,7 +2,7 @@
 ; Bump AppVersion for each release. Do not change AppId after first release.
 
 #define AppName    "OPERATION ETERNAL LIBERATION"
-#define AppVersion "1.0.3.1"
+#define AppVersion "1.0.3.2"
 
 [Setup]
 AppId={{3D7F2C1A-B8E4-4F2D-9C5E-1A2B3C4D5E6F}

@@ -62,7 +62,7 @@ RPCS3_TSS   = PORTABLE_DIR / "tss"
 RPCN_TSS    = RPCN_DIR / "tss_data" / games.ACTIVE.comm_id
 SETTINGS_FILE = APP_DIR / "settings.json"
 
-VERSION          = "1.0.3.1"
+VERSION          = "1.0.3.2"
 RELEASE_CHANNEL  = "main"           # "main" for stable releases, "experimental" for pre-releases
 GITHUB_REPO      = "The-OPERATIONS-Team/OPERATION-ETERNAL-LIBERATION"
 
