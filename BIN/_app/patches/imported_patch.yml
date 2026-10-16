@@ -48,3 +48,107 @@ PPU-11c753d6e0dd75f571e961e4f9f6c6500b57e74a:
       # Set Max Fuel In Memory
       - [ be32, 0x000b8e5c, 0x38800003 ] # li  r4, max_fuel_number
       - [ be32, 0x000b8e60, 0x9083004c ] # stw r4, 0x4c(r3)
+
+  "0.55 FOV":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: Camera FOV multiplier 0.55 (0.5 = original). 38 deg -> 41.8 deg
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x00826674, 0xc002648c ] # lfs f0, 0x648c(r2) : 0.55
+
+  "0.65 FOV":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: Camera FOV multiplier 0.65 (0.5 = original). 38 deg -> 49.4 deg
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x00826674, 0xc0022e24 ] # lfs f0, 0x2e24(r2) : 0.65
+
+  "0.75 FOV":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: Camera FOV multiplier (0.5 = original). 0.75 makes 38 deg -> 57 deg (A vignette becomes clearly obvious past this much FOV)
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x00826674, 0xc0028b74 ] # lfs f0, -0x748c(r2): loads 0.75 instead of 0.5
+
+  "0.875 FOV":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: Camera FOV multiplier 0.875 (0.5 = original). 38 deg -> 66.5 deg (A vignette becomes clearly obvious past this much FOV)
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x00826674, 0xc0022cb4 ] # lfs f0, -0x4b4c(r2) : 0.875
+
+  "1.0 FOV":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: Camera FOV multiplier 1.0 (0.5 = original). 38 deg -> 76 deg (A vignette becomes clearly obvious past this much FOV)
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x00826674, 0xc0028014 ] # lfs f0, -0x7fec(r2) : 1.0
+
+  "No Effect - DirtyLens and WaterDrop":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: Experimental. Disables DirtyLens/WaterDrop
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x002535c4, 0x4e800020 ] # blr (was cmpdi r4,0)
+
+  "No Effect - Decal":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: Experimental. Disables Decal (Havent found what gets disabled from disabling this)
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x002511fc, 0x4e800020 ] # blr (was cmpdi r3,0)
+
+  "No Effect - FullSceneRadialBlur":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: Experimental. Disables FullSceneRadialBlur (No idea where this happens ingame)
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x00258684, 0x4e800020 ] # blr (was cmpwi cr7,r3,0)
+
+  "No Effect - Weather":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: Experimental. Disables Weather [Weather, Thunder]
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x002847bc, 0x4e800020 ] # blr (was cmpdi r3,0)
+      - [ be32, 0x0028428c, 0x4e800020 ] # blr (was cmpdi r3,0)
+
+  "No Effect - Clouds":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: Experimental. Disables Clouds [BGCloud, BGFlatCloud, HiFlatCloud, ObjCloud]
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x00284ef8, 0x4e800020 ] # blr (was stdu r1,-0xa0(r1))
+      - [ be32, 0x0028586c, 0x4e800020 ] # blr (was stdu r1,-0xa0(r1))
+      - [ be32, 0x002885c0, 0x4e800020 ] # blr (was stdu r1,-0xc0(r1))
+      - [ be32, 0x00288ac4, 0x4e800020 ] # blr (was cmpwi cr7,r3,0)
