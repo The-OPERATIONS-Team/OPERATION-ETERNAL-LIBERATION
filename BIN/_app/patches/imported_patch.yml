@@ -48,3 +48,153 @@ PPU-11c753d6e0dd75f571e961e4f9f6c6500b57e74a:
       # Set Max Fuel In Memory
       - [ be32, 0x000b8e5c, 0x38800003 ] # li  r4, max_fuel_number
       - [ be32, 0x000b8e60, 0x9083004c ] # stw r4, 0x4c(r3)
+
+  "0.55 FOV":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: "Wider FOV, 38 -> 41.8 deg. Use only one FOV patch."
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x00826674, 0xc002648c ] # lfs f0, 0x648c(r2) : 0.55
+
+  "0.65 FOV":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: "Wider FOV, 38 -> 49.4 deg. Use only one FOV patch."
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x00826674, 0xc0022e24 ] # lfs f0, 0x2e24(r2) : 0.65
+
+  "0.75 FOV":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: "Wider FOV, 38 -> 57 deg. Dark corners appear. Use only one FOV patch."
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x00826674, 0xc0028b74 ] # lfs f0, -0x748c(r2): loads 0.75 instead of 0.5
+
+  "0.875 FOV":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: "Wider FOV, 38 -> 66.5 deg. Dark oval ring appears. Use only one FOV patch."
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x00826674, 0xc0022cb4 ] # lfs f0, -0x4b4c(r2) : 0.875
+
+  "1.0 FOV":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: "Wider FOV, 38 -> 76 deg. Hard black circle appears. Use only one FOV patch."
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x00826674, 0xc0028014 ] # lfs f0, -0x7fec(r2) : 1.0
+
+  "No Effect - DirtyLens and WaterDrop":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: "Removes lens dirt and water drops on the camera."
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x002535c4, 0x4e800020 ] # blr (was cmpdi r4,0)
+
+  "No Effect - Decal":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: "Removes decals (surface marks); Untested."
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x002511fc, 0x4e800020 ] # blr (was cmpdi r3,0)
+
+  "No Effect - Weather":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: "Removes weather: rain, snow and lightning."
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x002847bc, 0x4e800020 ] # blr (was cmpdi r3,0)
+      - [ be32, 0x0028428c, 0x4e800020 ] # blr (was cmpdi r3,0)
+
+  "No Effect - Clouds":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: "Removes clouds: background, flat layers and cloud objects."
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x00284ef8, 0x4e800020 ] # blr (was stdu r1,-0xa0(r1))
+      - [ be32, 0x0028586c, 0x4e800020 ] # blr (was stdu r1,-0xa0(r1))
+      - [ be32, 0x002885c0, 0x4e800020 ] # blr (was stdu r1,-0xc0(r1))
+      - [ be32, 0x00288ac4, 0x4e800020 ] # blr (was cmpwi cr7,r3,0)
+
+  "No Effect - HeatBlur":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: "Removes heat haze from the engines."
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x0027dba0, 0x4e800020 ] # blr (was cmpdi r3, 0)
+      - [ be32, 0x0027de78, 0x4e800020 ] # blr (was cmpdi r3, 0)
+      - [ be32, 0x00258684, 0x4e800020 ] # blr (was cmpwi cr7,r3,0)
+
+  "No Effect - RadialBlur":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: "Removes zoom blur."
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x00282120, 0x4e800020 ] # blr (was cmpwi cr7, r3, 0)
+      - [ be32, 0x002822a0, 0x4e800020 ] # blr (was cmpdi r3, 0)
+
+  "No Effect - LightSprite":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: "Removes light sprites, such as spot lights and light rays"
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x0027efac, 0x4e800020 ] # blr (was cmpdi r3, 0)
+      - [ be32, 0x0027f220, 0x4e800020 ] # blr (was cmpdi r3, 0)
+      - [ be32, 0x0027ecf4, 0x4e800020 ] # blr (was cmpdi r3, 0)
+
+  "WIP - No Effect - LineVapor":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: "Removes vapor trail lines; Untested"
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x0027f9b8, 0x4e800020 ] # blr (was cmpdi r3, 0)
+
+  "WIP - No Effect - ShoulderVapor":
+    Games:
+      "OPERATION ETERNAL LIBERATION":
+        NPUB31347: [02.11]
+    Author: Glub
+    Notes: "Removes vapor at the aircraft's shoulders; Untested"
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x00282d6c, 0x4e800020 ] # blr (was cmpdi r3, 0)
+      - [ be32, 0x0028305c, 0x4e800020 ] # blr (was cmpdi r3, 0)
